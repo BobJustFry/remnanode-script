@@ -39,7 +39,7 @@ case "$lang" in
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_REMNANODE="Installing RemnaNode..."
     MSG_COMPLETE="Installation completed!"
-    MSG_REBOOT="If the system was updated, a reboot may be required (check with 'sudo reboot' if needed)."
+    MSG_REBOOT="If the system was updated, a reboot may be required (check with sudo reboot if needed)."
 ;;
 *)
     MSG_NODE_PORT="Введите NODE_PORT (по умолчанию 2222):"
@@ -59,7 +59,7 @@ case "$lang" in
     MSG_BBR="Настройка BBR для оптимизации сети..."
     MSG_REMNANODE="Установка RemnaNode..."
     MSG_COMPLETE="Установка завершена!"
-    MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с 'sudo reboot' если нужно)."
+    MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с sudo reboot если нужно)."
 ;;
 esac
 
