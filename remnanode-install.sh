@@ -97,6 +97,9 @@ $SUDO_CMD apt update && $SUDO_CMD apt upgrade -y
 # sudo apt install -y xfce4 xfce4-goodies
 # echo "Настройка интерфейса завершена."
 
+# Инициализация переменной
+skip_docker=false
+
 # Проверка Docker
 if command -v docker >/dev/null 2>&1; then
     echo "$MSG_DOCKER_CHECK"
