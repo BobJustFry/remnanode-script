@@ -119,16 +119,8 @@ esac
 
 # Проверка Docker
 if command -v docker >/dev/null 2>&1; then
-    echo "$MSG_DOCKER_CHECK"
-    read -r response
-    case "$response" in
-    [yY])
-    ;;
-    *)
-        echo "$MSG_SKIP_DOCKER"
-        skip_docker=true
-    ;;
-    esac
+    echo "$MSG_SKIP_DOCKER"
+    skip_docker=true
 fi
 
 case "$skip_docker" in
@@ -137,15 +129,11 @@ true)
 ;;
 *)
     echo "$MSG_INSTALL_DOCKER"
-    # Удаление старых версий Docker, если есть
-    $SUDO_CMD apt remove -y docker docker-engine docker.io containerd runc || true
-
-    # Установка Docker
-    $SUDO_CMD apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | $SUDO_CMD gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | $SUDO_CMD tee /etc/apt/sources.list.d/docker.list > /dev/null
-    $SUDO_CMD apt update
-    $SUDO_CMD apt install -y docker-ce docker-ce-cli containerd.io
+    if ! command -v curl >/dev/null 2>&1; then
+        $SUDO_CMD apt update
+        $SUDO_CMD apt install -y curl
+    fi
+    curl -fsSL https://get.docker.com | $SUDO_CMD sh
 
     echo "$MSG_START_DOCKER"
     $SUDO_CMD systemctl start docker
