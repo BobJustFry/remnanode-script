@@ -26,6 +26,7 @@ read -r lang
 # Инициализация переменных
 skip_update=false
 skip_docker=false
+skip_mtu=false
 
 case "$lang" in
 1)
@@ -49,6 +50,8 @@ case "$lang" in
     MSG_UPDATE_CONFIRM="Update and upgrade system packages? (y/n)"
     MSG_SKIP_UPDATE="Skipping system update."
     MSG_REBOOT="If the system was updated, a reboot may be required (check with sudo reboot if needed)."
+    MSG_MTU_CONFIRM="Set MTU to 1450 for hosts using DDoS protection? (y/n)"
+    MSG_SKIP_MTU="Skipping MTU configuration."
 ;;
 *)
     MSG_NODE_PORT="Введите NODE_PORT (по умолчанию 2222):"
@@ -71,6 +74,19 @@ case "$lang" in
     MSG_UPDATE_CONFIRM="Обновить и апгрейдить пакеты системы? (y/n)"
     MSG_SKIP_UPDATE="Пропускаем обновление системы."
     MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с sudo reboot если нужно)."
+    MSG_MTU_CONFIRM="Установить MTU в 1450 для хостов, использующих защиту от DDoS-атак? (y/n)"
+    MSG_SKIP_MTU="Пропускаем настройку MTU."
+;;
+esac
+
+echo "$MSG_MTU_CONFIRM"
+read -r response
+case "$response" in
+[yY])
+    $SUDO_CMD netplan set ethernets.eth0.mtu=1450 && $SUDO_CMD netplan apply
+;;
+*)
+    echo "$MSG_SKIP_MTU"
 ;;
 esac
 

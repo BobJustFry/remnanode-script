@@ -3,10 +3,10 @@
 ## Описание / Description
 
 ### РУ
-Автоматизированный скрипт установщика для развертывания RemnaNode на Ubuntu Linux. Скрипт выполняет полную настройку системы, включая обновление ОС, установку Docker, оптимизацию сети с помощью BBR, и развертывание контейнера RemnaNode.
+Автоматизированный скрипт установщика для развертывания RemnaNode на Ubuntu Linux. Скрипт выполняет полную настройку системы, включая обновление ОС, установку Docker (если не установлен), оптимизацию сети с помощью BBR, опциональную настройку MTU для защиты от DDoS, и развертывание контейнера RemnaNode.
 
 ### EN
-An automated installer script for deploying RemnaNode on Ubuntu Linux. The script performs complete system configuration, including OS updates, Docker installation, network optimization with BBR, and RemnaNode container deployment.
+An automated installer script for deploying RemnaNode on Ubuntu Linux. The script performs complete system configuration, including OS updates, Docker installation (if not installed), network optimization with BBR, optional MTU configuration for DDoS protection, and RemnaNode container deployment.
 
 ---
 
@@ -71,18 +71,22 @@ sudo ./remnanode-install.sh
    - Updates system packages and kernel
 
 2. **Установка Docker / Docker Installation**
-   - Проверяет наличие Docker и предлагает переустановку
-   - Устанавливает Docker CE из официального репозитория
-   - Checks for Docker and offers reinstallation option
-   - Installs Docker CE from official repository
+   - Проверяет наличие Docker; если установлен, пропускает установку
+   - Если Docker не найден, устанавливает через официальный скрипт
+   - Checks for Docker presence; skips installation if already installed
+   - If not found, installs via official installation script
 
-3. **Настройка BBR / BBR Configuration**
+3. **Настройка MTU (опционально) / MTU Configuration (optional)**
+   - Предлагает установить MTU=1450 для хостов с защитой от DDoS-атак
+   - Offers to set MTU=1450 for hosts using DDoS protection
+
+4. **Настройка BBR / BBR Configuration**
    - Включает алгоритм BBR для оптимизации сети
    - Улучшает пропускную способность и снижает задержку
    - Enables BBR algorithm for network optimization
    - Improves bandwidth and reduces latency
 
-4. **Развертывание RemnaNode / RemnaNode Deployment**
+5. **Развертывание RemnaNode / RemnaNode Deployment**
    - Создает директорию `/opt/remnanode`
    - Генерирует `docker-compose.yml` с вашими параметрами
    - Запускает контейнер RemnaNode
