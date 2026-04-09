@@ -37,7 +37,7 @@ An automated installer script for deploying RemnaNode on Ubuntu Linux. The scrip
 Можно запустить скрипт напрямую с GitHub без предварительного скачивания:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh | LC_ALL=en_US.UTF-8 sudo bash
 ```
 
 Если хотите сначала скачать файл и проверить перед запуском:
@@ -52,7 +52,7 @@ sudo ./remnanode-install.sh
 You can run the script directly from GitHub without downloading it first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh | LC_ALL=en_US.UTF-8 sudo bash
 ```
 
 If you prefer to download and verify the file first:
