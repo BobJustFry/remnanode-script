@@ -16,7 +16,7 @@ An automated installer script for deploying RemnaNode on Ubuntu Linux. The scrip
 - **ОС / OS**: Ubuntu 20.04 LTS или выше / Ubuntu 20.04 LTS or higher
 - **Рекомендуемая версия / Recommended Version**: **Ubuntu 24.04 LTS**
 - **Процессор / CPU**: 1 ядро минимум / 1 core minimum
-- **ОЗУ / RAM**: 2 GB минимум / 2 GB minimum
+- **ОЗУ / RAM**: 1 GB минимум / 1 GB minimum
 - **Место на диске / Disk Space**: 10 GB минимум / 10 GB minimum
 - **Интернет / Internet**: Стабильное подключение / Stable connection
 
