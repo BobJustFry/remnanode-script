@@ -37,13 +37,13 @@ An automated installer script for deploying RemnaNode on Ubuntu Linux. The scrip
 Можно запустить скрипт напрямую с GitHub без предварительного скачивания:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bob4fun/remnanode-script/main/remnanode-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh | sudo bash
 ```
 
 Если хотите сначала скачать файл и проверить перед запуском:
 
 ```bash
-curl -fsSL -o remnanode-install.sh https://raw.githubusercontent.com/bob4fun/remnanode-script/main/remnanode-install.sh
+curl -fsSL -o remnanode-install.sh https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh
 chmod +x remnanode-install.sh
 sudo ./remnanode-install.sh
 ```
@@ -52,13 +52,13 @@ sudo ./remnanode-install.sh
 You can run the script directly from GitHub without downloading it first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bob4fun/remnanode-script/main/remnanode-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh | sudo bash
 ```
 
 If you prefer to download and verify the file first:
 
 ```bash
-curl -fsSL -o remnanode-install.sh https://raw.githubusercontent.com/bob4fun/remnanode-script/main/remnanode-install.sh
+curl -fsSL -o remnanode-install.sh https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh
 chmod +x remnanode-install.sh
 sudo ./remnanode-install.sh
 ```
