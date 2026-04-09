@@ -23,6 +23,10 @@ echo "1. English"
 echo "2. Русский"
 read -r lang
 
+# Инициализация переменных
+skip_update=false
+skip_docker=false
+
 case "$lang" in
 1)
     MSG_NODE_PORT="Enter NODE_PORT (default 2222):"
@@ -42,6 +46,8 @@ case "$lang" in
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_REMNANODE="Installing RemnaNode..."
     MSG_COMPLETE="Installation completed!"
+    MSG_UPDATE_CONFIRM="Update and upgrade system packages? (y/n)"
+    MSG_SKIP_UPDATE="Skipping system update."
     MSG_REBOOT="If the system was updated, a reboot may be required (check with sudo reboot if needed)."
 ;;
 *)
@@ -62,6 +68,8 @@ case "$lang" in
     MSG_BBR="Настройка BBR для оптимизации сети..."
     MSG_REMNANODE="Установка RemnaNode..."
     MSG_COMPLETE="Установка завершена!"
+    MSG_UPDATE_CONFIRM="Обновить и апгрейдить пакеты системы? (y/n)"
+    MSG_SKIP_UPDATE="Пропускаем обновление системы."
     MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с sudo reboot если нужно)."
 ;;
 esac
@@ -92,16 +100,22 @@ while [[ -z "$SECRET_KEY" ]]; do
     esac
 done
 
-echo "$MSG_UPDATE"
-$SUDO_CMD apt update && $SUDO_CMD apt upgrade -y
+echo "$MSG_UPDATE_CONFIRM"
+read -r response
+case "$response" in
+[yY])
+    $SUDO_CMD apt update && $SUDO_CMD apt upgrade -y
+;;
+*)
+    echo "$MSG_SKIP_UPDATE"
+    skip_update=true
+;;
+esac
 
 # Настройки интерфейса (пример: установка и настройка Xfce для GUI, если нужно)
 # Если вам нужен GUI, раскомментируйте следующие строки:
 # sudo apt install -y xfce4 xfce4-goodies
 # echo "Настройка интерфейса завершена."
-
-# Инициализация переменной
-skip_docker=false
 
 # Проверка Docker
 if command -v docker >/dev/null 2>&1; then
