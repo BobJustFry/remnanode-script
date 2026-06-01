@@ -45,6 +45,11 @@ case "$lang" in
     MSG_REMOVE_OLD="Removing old Docker versions, if any"
     MSG_START_DOCKER="Starting Docker..."
     MSG_DOCKER_UNCHANGED="Docker left unchanged."
+    MSG_DOCKER_CONTAINERS_FOUND="The following Docker containers were found:"
+    MSG_DOCKER_CONTAINERS_REMOVE="Remove all containers and their data (volumes, images)? (y/n)"
+    MSG_DOCKER_CONTAINERS_REMOVED="All Docker containers, volumes and images removed."
+    MSG_DOCKER_CONTAINERS_UNCHANGED="Docker containers left unchanged."
+    MSG_DOCKER_NO_CONTAINERS="No Docker containers found."
     MSG_NGINX_FOUND="Nginx is already installed. Remove it for a clean install? (y/n)"
     MSG_NGINX_REMOVED="Nginx removed."
     MSG_NGINX_UNCHANGED="Nginx left unchanged."
@@ -76,6 +81,11 @@ case "$lang" in
     MSG_REMOVE_OLD="Удаление старых версий Docker, если есть"
     MSG_START_DOCKER="Запуск Docker..."
     MSG_DOCKER_UNCHANGED="Docker оставлен без изменений."
+    MSG_DOCKER_CONTAINERS_FOUND="Обнаружены следующие Docker-контейнеры:"
+    MSG_DOCKER_CONTAINERS_REMOVE="Удалить все контейнеры и их данные (тома, образы)? (y/n)"
+    MSG_DOCKER_CONTAINERS_REMOVED="Все Docker-контейнеры, тома и образы удалены."
+    MSG_DOCKER_CONTAINERS_UNCHANGED="Docker-контейнеры оставлены без изменений."
+    MSG_DOCKER_NO_CONTAINERS="Docker-контейнеры не найдены."
     MSG_NGINX_FOUND="Nginx уже установлен. Удалить для чистой установки? (y/n)"
     MSG_NGINX_REMOVED="Nginx удалён."
     MSG_NGINX_UNCHANGED="Nginx оставлен без изменений."
@@ -183,6 +193,29 @@ fi
 
 # Проверка Docker
 if command -v docker >/dev/null 2>&1; then
+    # Проверка наличия контейнеров
+    CONTAINERS=$($SUDO_CMD docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
+    if [[ -n "$CONTAINERS" ]]; then
+        echo "$MSG_DOCKER_CONTAINERS_FOUND"
+        echo "$CONTAINERS"
+        echo "$MSG_DOCKER_CONTAINERS_REMOVE"
+        read -r response
+        case "$response" in
+        [yY])
+            $SUDO_CMD docker stop $($SUDO_CMD docker ps -q) 2>/dev/null || true
+            $SUDO_CMD docker rm -f $($SUDO_CMD docker ps -aq) 2>/dev/null || true
+            $SUDO_CMD docker volume rm $($SUDO_CMD docker volume ls -q) 2>/dev/null || true
+            $SUDO_CMD docker rmi -f $($SUDO_CMD docker images -q) 2>/dev/null || true
+            echo "$MSG_DOCKER_CONTAINERS_REMOVED"
+        ;;
+        *)
+            echo "$MSG_DOCKER_CONTAINERS_UNCHANGED"
+        ;;
+        esac
+    else
+        echo "$MSG_DOCKER_NO_CONTAINERS"
+    fi
+
     echo "$MSG_DOCKER_CHECK"
     read -r response
     case "$response" in
