@@ -38,12 +38,19 @@ case "$lang" in
     MSG_GUI_COMMENT="# Interface settings (example: install and configure Xfce for GUI, if needed)"
     MSG_GUI_UNCOMMENT="# If you need GUI, uncomment the following lines:"
     MSG_GUI_COMPLETE="# Interface setup completed."
-    MSG_DOCKER_CHECK="Docker is already installed. Reinstall? (y/n)"
+    MSG_DOCKER_CHECK="Docker is already installed. Perform a clean reinstall? (y/n)"
+    MSG_DOCKER_CLEAN="Removing Docker for clean reinstall..."
     MSG_SKIP_DOCKER="Skipping Docker installation."
     MSG_INSTALL_DOCKER="Installing Docker..."
     MSG_REMOVE_OLD="Removing old Docker versions, if any"
     MSG_START_DOCKER="Starting Docker..."
     MSG_DOCKER_UNCHANGED="Docker left unchanged."
+    MSG_NGINX_FOUND="Nginx is already installed. Remove it for a clean install? (y/n)"
+    MSG_NGINX_REMOVED="Nginx removed."
+    MSG_NGINX_UNCHANGED="Nginx left unchanged."
+    MSG_CADDY_FOUND="Caddy is already installed. Remove it for a clean install? (y/n)"
+    MSG_CADDY_REMOVED="Caddy removed."
+    MSG_CADDY_UNCHANGED="Caddy left unchanged."
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_REMNANODE="Installing RemnaNode..."
     MSG_COMPLETE="Installation completed!"
@@ -62,12 +69,19 @@ case "$lang" in
     MSG_GUI_COMMENT="# Настройки интерфейса (пример: установка и настройка Xfce для GUI, если нужно)"
     MSG_GUI_UNCOMMENT="# Если вам нужен GUI, раскомментируйте следующие строки:"
     MSG_GUI_COMPLETE="# Настройка интерфейса завершена."
-    MSG_DOCKER_CHECK="Docker уже установлен. Переустановить? (y/n)"
+    MSG_DOCKER_CHECK="Docker уже установлен. Выполнить чистую переустановку? (y/n)"
+    MSG_DOCKER_CLEAN="Удаление Docker для чистой переустановки..."
     MSG_SKIP_DOCKER="Пропускаем установку Docker."
     MSG_INSTALL_DOCKER="Установка Docker..."
-    MSG_REMOVE_OLD="# Удаление старых версий Docker, если есть"
+    MSG_REMOVE_OLD="Удаление старых версий Docker, если есть"
     MSG_START_DOCKER="Запуск Docker..."
     MSG_DOCKER_UNCHANGED="Docker оставлен без изменений."
+    MSG_NGINX_FOUND="Nginx уже установлен. Удалить для чистой установки? (y/n)"
+    MSG_NGINX_REMOVED="Nginx удалён."
+    MSG_NGINX_UNCHANGED="Nginx оставлен без изменений."
+    MSG_CADDY_FOUND="Caddy уже установлен. Удалить для чистой установки? (y/n)"
+    MSG_CADDY_REMOVED="Caddy удалён."
+    MSG_CADDY_UNCHANGED="Caddy оставлен без изменений."
     MSG_BBR="Настройка BBR для оптимизации сети..."
     MSG_REMNANODE="Установка RemnaNode..."
     MSG_COMPLETE="Установка завершена!"
@@ -133,15 +147,62 @@ esac
 # sudo apt install -y xfce4 xfce4-goodies
 # echo "Настройка интерфейса завершена."
 
+# Проверка Nginx
+if command -v nginx >/dev/null 2>&1; then
+    echo "$MSG_NGINX_FOUND"
+    read -r response
+    case "$response" in
+    [yY])
+        $SUDO_CMD systemctl stop nginx 2>/dev/null || true
+        $SUDO_CMD apt-get remove --purge -y nginx nginx-common nginx-full nginx-core 2>/dev/null || true
+        $SUDO_CMD apt-get autoremove -y
+        echo "$MSG_NGINX_REMOVED"
+    ;;
+    *)
+        echo "$MSG_NGINX_UNCHANGED"
+    ;;
+    esac
+fi
+
+# Проверка Caddy
+if command -v caddy >/dev/null 2>&1; then
+    echo "$MSG_CADDY_FOUND"
+    read -r response
+    case "$response" in
+    [yY])
+        $SUDO_CMD systemctl stop caddy 2>/dev/null || true
+        $SUDO_CMD apt-get remove --purge -y caddy 2>/dev/null || true
+        $SUDO_CMD apt-get autoremove -y
+        echo "$MSG_CADDY_REMOVED"
+    ;;
+    *)
+        echo "$MSG_CADDY_UNCHANGED"
+    ;;
+    esac
+fi
+
 # Проверка Docker
 if command -v docker >/dev/null 2>&1; then
-    echo "$MSG_SKIP_DOCKER"
-    skip_docker=true
+    echo "$MSG_DOCKER_CHECK"
+    read -r response
+    case "$response" in
+    [yY])
+        echo "$MSG_DOCKER_CLEAN"
+        $SUDO_CMD systemctl stop docker 2>/dev/null || true
+        $SUDO_CMD apt-get remove --purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker.io 2>/dev/null || true
+        $SUDO_CMD apt-get autoremove -y
+        skip_docker=false
+    ;;
+    *)
+        echo "$MSG_DOCKER_UNCHANGED"
+        skip_docker=true
+    ;;
+    esac
 fi
 
 case "$skip_docker" in
 true)
-    echo "$MSG_DOCKER_UNCHANGED"
+    : # Docker left as-is
 ;;
 *)
     echo "$MSG_INSTALL_DOCKER"
