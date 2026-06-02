@@ -90,6 +90,14 @@ case "$lang" in
     MSG_REBOOT="If the system was updated, a reboot may be required (check with sudo reboot if needed)."
     MSG_MTU_CONFIRM="Set MTU to 1450 for hosts using DDoS protection? (y/n)"
     MSG_SKIP_MTU="Skipping MTU configuration."
+    MSG_SWAP_CONFIRM="Install or reconfigure swap? (default 2G) (y/n)"
+    MSG_SWAP_SIZE="Enter swap size (default 2G, examples: 2G, 2048M):"
+    MSG_SWAP_SKIP="Skipping swap configuration."
+    MSG_SWAP_INVALID_SIZE="Invalid swap size format. Try again."
+    MSG_SWAP_NOT_FOUND="No active swap found. Creating new swap..."
+    MSG_SWAP_FOUND="Existing swap found. It will be recreated with the new size..."
+    MSG_SWAP_CONFIG="Configuring swap..."
+    MSG_SWAP_DONE="Swap configured successfully."
 ;;
 *)
     MSG_NODE_PORT="Введите NODE_PORT (по умолчанию 2222):"
@@ -148,8 +156,88 @@ case "$lang" in
     MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с sudo reboot если нужно)."
     MSG_MTU_CONFIRM="Установить MTU в 1450 для хостов, использующих защиту от DDoS-атак? (y/n)"
     MSG_SKIP_MTU="Пропускаем настройку MTU."
+    MSG_SWAP_CONFIRM="Установить или перенастроить swap? (по умолчанию 2G) (y/n)"
+    MSG_SWAP_SIZE="Введите размер swap (по умолчанию 2G, примеры: 2G, 2048M):"
+    MSG_SWAP_SKIP="Пропускаем настройку swap."
+    MSG_SWAP_INVALID_SIZE="Неверный формат размера swap. Попробуйте снова."
+    MSG_SWAP_NOT_FOUND="Активный swap не найден. Создаем новый swap..."
+    MSG_SWAP_FOUND="Обнаружен существующий swap. Он будет пересоздан с новым размером..."
+    MSG_SWAP_CONFIG="Настраиваем swap..."
+    MSG_SWAP_DONE="Swap успешно настроен."
 ;;
 esac
+
+normalize_swap_size() {
+    local raw="$1"
+
+    raw=$(printf '%s' "$raw" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')
+    if [ -z "$raw" ]; then
+        printf '2G\n'
+        return 0
+    fi
+
+    case "$raw" in
+    *B)
+        raw=${raw%B}
+    ;;
+    esac
+
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+        printf '%sG\n' "$raw"
+        return 0
+    fi
+
+    if [[ "$raw" =~ ^[0-9]+[KMG]$ ]]; then
+        printf '%s\n' "$raw"
+        return 0
+    fi
+
+    return 1
+}
+
+configure_swap() {
+    local swap_size="$1"
+    local swap_file="/swapfile"
+    local active_swaps
+    local swap_device
+
+    echo "$MSG_SWAP_CONFIG"
+
+    active_swaps=$($SUDO_CMD swapon --show=NAME --noheadings 2>/dev/null || true)
+    if [ -n "${active_swaps// /}" ]; then
+        echo "$MSG_SWAP_FOUND"
+        while IFS= read -r swap_device; do
+            if [ -n "$swap_device" ]; then
+                $SUDO_CMD swapoff "$swap_device" 2>/dev/null || true
+            fi
+        done <<EOF
+$active_swaps
+EOF
+    else
+        echo "$MSG_SWAP_NOT_FOUND"
+    fi
+
+    # Remove existing swap entries to avoid duplicate or stale records.
+    $SUDO_CMD sed -i '/^[[:space:]]*#/!{/[[:space:]]swap[[:space:]]/d;}' /etc/fstab
+
+    if [ -f "$swap_file" ]; then
+        $SUDO_CMD rm -f "$swap_file"
+    fi
+
+    if ! $SUDO_CMD fallocate -l "$swap_size" "$swap_file" 2>/dev/null; then
+        $SUDO_CMD dd if=/dev/zero of="$swap_file" bs="$swap_size" count=1 status=none
+    fi
+
+    $SUDO_CMD chmod 600 "$swap_file"
+    $SUDO_CMD mkswap "$swap_file" >/dev/null
+    $SUDO_CMD swapon "$swap_file"
+
+    if ! $SUDO_CMD grep -Eq '^[[:space:]]*/swapfile[[:space:]]+none[[:space:]]+swap[[:space:]]+sw[[:space:]]+0[[:space:]]+0[[:space:]]*$' /etc/fstab; then
+        echo '/swapfile none swap sw 0 0' | $SUDO_CMD tee -a /etc/fstab > /dev/null
+    fi
+
+    echo "$MSG_SWAP_DONE"
+}
 
 normalize_port_list() {
     local input="$1"
@@ -325,6 +413,27 @@ if [ "$install_mode" = "4" ]; then
     reconfigure_only=true
     echo "$MSG_RECONFIGURE_ONLY"
 fi
+
+echo "$MSG_SWAP_CONFIRM"
+read -r response
+case "$response" in
+[yY])
+    while true; do
+        echo "$MSG_SWAP_SIZE"
+        read -r swap_size_input
+
+        if normalized_swap_size=$(normalize_swap_size "$swap_size_input"); then
+            configure_swap "$normalized_swap_size"
+            break
+        fi
+
+        echo "$MSG_SWAP_INVALID_SIZE"
+    done
+;;
+*)
+    echo "$MSG_SWAP_SKIP"
+;;
+esac
 
 echo "$MSG_MTU_CONFIRM"
 read -r response
