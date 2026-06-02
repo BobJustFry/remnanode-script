@@ -56,6 +56,7 @@ case "$lang" in
     MSG_CADDY_FOUND="Caddy is already installed. Remove it for a clean install? (y/n)"
     MSG_CADDY_REMOVED="Caddy removed."
     MSG_CADDY_UNCHANGED="Caddy left unchanged."
+    MSG_IPV6="Disabling IPv6..."
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_REMNANODE="Installing RemnaNode..."
     MSG_COMPLETE="Installation completed!"
@@ -92,6 +93,7 @@ case "$lang" in
     MSG_CADDY_FOUND="Caddy уже установлен. Удалить для чистой установки? (y/n)"
     MSG_CADDY_REMOVED="Caddy удалён."
     MSG_CADDY_UNCHANGED="Caddy оставлен без изменений."
+    MSG_IPV6="Отключение IPv6..."
     MSG_BBR="Настройка BBR для оптимизации сети..."
     MSG_REMNANODE="Установка RemnaNode..."
     MSG_COMPLETE="Установка завершена!"
@@ -251,11 +253,51 @@ true)
 ;;
 esac
 
+ensure_sysctl_setting() {
+    local key="$1"
+    local value="$2"
+    local file="/etc/sysctl.conf"
+    local duplicates
+    local key_escaped
+
+    echo "${key}=${value}" | $SUDO_CMD tee -a "$file" > /dev/null
+
+    duplicates=$($SUDO_CMD awk -F= -v target_key="$key" '
+    {
+        current_key=$1
+        gsub(/[[:space:]]/, "", current_key)
+        if (current_key ~ /^#/) {
+            next
+        }
+        if (current_key == target_key) {
+            count++
+        }
+    }
+    END {
+        print count+0
+    }
+    ' "$file")
+
+    if [ "$duplicates" -gt 1 ]; then
+        key_escaped=$(printf '%s\n' "$key" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        $SUDO_CMD sed -i "/^[[:space:]]*${key_escaped}[[:space:]]*=/d" "$file"
+        echo "${key}=${value}" | $SUDO_CMD tee -a "$file" > /dev/null
+    fi
+}
+
+echo "$MSG_IPV6"
+$SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1
+$SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=1
+$SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=1
+ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "1"
+ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "1"
+ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "1"
+
 echo "$MSG_BBR"
 $SUDO_CMD sysctl -w net.core.default_qdisc=fq
 $SUDO_CMD sysctl -w net.ipv4.tcp_congestion_control=bbr
-echo "net.core.default_qdisc=fq" | $SUDO_CMD tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control=bbr" | $SUDO_CMD tee -a /etc/sysctl.conf
+ensure_sysctl_setting "net.core.default_qdisc" "fq"
+ensure_sysctl_setting "net.ipv4.tcp_congestion_control" "bbr"
 $SUDO_CMD sysctl -p
 
 echo "$MSG_REMNANODE"
