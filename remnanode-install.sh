@@ -74,9 +74,11 @@ case "$lang" in
     MSG_MODE_2="2) Open ports only (no reinstall)"
     MSG_MODE_3="3) Clean reinstall (remove old data)"
     MSG_MODE_4="4) Update parameters only"
+    MSG_MODE_5="5) Create or update swap (default 2G)"
     MSG_MODE_INVALID="Invalid mode selected. Full install will be used."
     MSG_ADDITIONAL_PORTS="Enter additional node ports (comma-separated), or leave empty:"
     MSG_PORTS_ONLY_START="Running in ports-only mode."
+    MSG_SWAP_ONLY_START="Running in swap-only mode."
     MSG_SAVED_NODE_PORT_FOUND="Found NODE_PORT from existing installation"
     MSG_SAVED_NODE_PORT_NOT_FOUND="NODE_PORT from existing installation was not found. Using default 2222."
     MSG_NO_VALID_PORTS="No valid ports provided. Skipping port changes."
@@ -140,9 +142,11 @@ case "$lang" in
     MSG_MODE_2="2) Только открыть порты (без переустановки)"
     MSG_MODE_3="3) Чистая переустановка (удалить старые данные)"
     MSG_MODE_4="4) Только изменение параметров"
+    MSG_MODE_5="5) Создание/обновление swap (по умолчанию 2G)"
     MSG_MODE_INVALID="Выбран неверный режим. Будет использована полная установка."
     MSG_ADDITIONAL_PORTS="Введите дополнительные порты ноды (через запятую) или оставьте пустым:"
     MSG_PORTS_ONLY_START="Запуск в режиме только открытия портов."
+    MSG_SWAP_ONLY_START="Запуск в режиме только настройки swap."
     MSG_SAVED_NODE_PORT_FOUND="Найден NODE_PORT из существующей установки"
     MSG_SAVED_NODE_PORT_NOT_FOUND="NODE_PORT из существующей установки не найден. Используется 2222 по умолчанию."
     MSG_NO_VALID_PORTS="Валидные порты не указаны. Пропускаем изменение портов."
@@ -237,6 +241,33 @@ EOF
     fi
 
     echo "$MSG_SWAP_DONE"
+}
+
+run_swap_size_prompt() {
+    while true; do
+        echo "$MSG_SWAP_SIZE"
+        read -r swap_size_input
+
+        if normalized_swap_size=$(normalize_swap_size "$swap_size_input"); then
+            configure_swap "$normalized_swap_size"
+            break
+        fi
+
+        echo "$MSG_SWAP_INVALID_SIZE"
+    done
+}
+
+prompt_configure_swap() {
+    echo "$MSG_SWAP_CONFIRM"
+    read -r response
+    case "$response" in
+    [yY])
+        run_swap_size_prompt
+    ;;
+    *)
+        echo "$MSG_SWAP_SKIP"
+    ;;
+    esac
 }
 
 normalize_port_list() {
@@ -374,13 +405,14 @@ echo "$MSG_MODE_1"
 echo "$MSG_MODE_2"
 echo "$MSG_MODE_3"
 echo "$MSG_MODE_4"
+echo "$MSG_MODE_5"
 read -r install_mode
 case "$install_mode" in
 0)
     echo "$MSG_CANCEL"
     exit 0
     ;;
-1|2|3|4)
+1|2|3|4|5)
     ;;
 *)
     echo "$MSG_MODE_INVALID"
@@ -405,6 +437,12 @@ if [ "$install_mode" = "2" ]; then
     exit 0
 fi
 
+if [ "$install_mode" = "5" ]; then
+    echo "$MSG_SWAP_ONLY_START"
+    run_swap_size_prompt
+    exit 0
+fi
+
 if [ "$install_mode" = "3" ]; then
     clean_install=true
 fi
@@ -414,26 +452,7 @@ if [ "$install_mode" = "4" ]; then
     echo "$MSG_RECONFIGURE_ONLY"
 fi
 
-echo "$MSG_SWAP_CONFIRM"
-read -r response
-case "$response" in
-[yY])
-    while true; do
-        echo "$MSG_SWAP_SIZE"
-        read -r swap_size_input
-
-        if normalized_swap_size=$(normalize_swap_size "$swap_size_input"); then
-            configure_swap "$normalized_swap_size"
-            break
-        fi
-
-        echo "$MSG_SWAP_INVALID_SIZE"
-    done
-;;
-*)
-    echo "$MSG_SWAP_SKIP"
-;;
-esac
+prompt_configure_swap
 
 echo "$MSG_MTU_CONFIRM"
 read -r response
