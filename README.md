@@ -105,13 +105,35 @@ chmod +x remnanode-install.sh
 sudo ./remnanode-install.sh
 ```
 
+### Режимы установки / Install Modes
+
+После выбора языка отображается меню (версия установщика в первой строке, например `20260602-menu5`):
+
+| Режим | Описание |
+|-------|----------|
+| 0 | Выход / Exit |
+| 1 | Полная установка / Full install |
+| 2 | Только открыть порты / Open ports only |
+| 3 | Чистая переустановка / Clean reinstall |
+| 4 | Только изменение параметров / Update parameters only |
+| 5 | Создание/обновление swap (по умолчанию 2G) / Create or update swap |
+
+Если в меню нет пункта **5**, на сервере лежит старая копия скрипта. Скачайте заново:
+
+```bash
+curl -fsSL -o remnanode-install.sh "https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh?$(date +%s)"
+grep -F 'MSG_MODE_5' remnanode-install.sh && grep -F '20260602-menu5' remnanode-install.sh
+sudo bash remnanode-install.sh
+```
+
 ### Интерактивные параметры / Interactive Parameters
 
 При запуске скрипт попросит ввести:
 
 1. **Язык / Language**: Выберите English (1) или Русский (2)
-2. **NODE_PORT**: Порт для RemnaNode (по умолчанию 2222)
-3. **SECRET_KEY**: Секретный ключ для RemnaNode (обязательно)
+2. **Режим / Mode**: 0–5 (см. таблицу выше)
+3. **NODE_PORT**: Порт для RemnaNode (по умолчанию 2222), в режимах 1/3/4
+4. **SECRET_KEY**: Секретный ключ для RemnaNode (обязательно), в режимах 1/3/4
 
 ### Пример / Example
 

@@ -8,6 +8,8 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
+INSTALLER_VERSION="20260602-menu5"
+
 # Определение команды для sudo
 case "$EUID" in
 0)
@@ -68,6 +70,7 @@ case "$lang" in
     MSG_FIREWALL_NOT_FOUND="No supported firewall tool found. Skipping port configuration."
     MSG_FIREWALL_INACTIVE="Firewall is not active. Skipping port configuration."
     MSG_PORTS_DONE="Port check completed."
+    MSG_INSTALLER_VERSION="Installer version:"
     MSG_MODE_SELECT="Select mode:"
     MSG_MODE_0="0) Exit"
     MSG_MODE_1="1) Full install"
@@ -136,6 +139,7 @@ case "$lang" in
     MSG_FIREWALL_NOT_FOUND="Поддерживаемый фаервол не найден. Пропускаем настройку портов."
     MSG_FIREWALL_INACTIVE="Фаервол не активен. Пропускаем настройку портов."
     MSG_PORTS_DONE="Проверка портов завершена."
+    MSG_INSTALLER_VERSION="Версия установщика:"
     MSG_MODE_SELECT="Выберите режим:"
     MSG_MODE_0="0) Выход"
     MSG_MODE_1="1) Полная установка"
@@ -399,13 +403,17 @@ open_node_ports() {
     echo "$MSG_PORTS_DONE"
 }
 
-echo "$MSG_MODE_SELECT"
-echo "$MSG_MODE_0"
-echo "$MSG_MODE_1"
-echo "$MSG_MODE_2"
-echo "$MSG_MODE_3"
-echo "$MSG_MODE_4"
-echo "$MSG_MODE_5"
+show_install_mode_menu() {
+    local mode_id
+
+    echo "$MSG_INSTALLER_VERSION $INSTALLER_VERSION"
+    echo "$MSG_MODE_SELECT"
+    for mode_id in 0 1 2 3 4 5; do
+        eval "echo \"\$MSG_MODE_${mode_id}\""
+    done
+}
+
+show_install_mode_menu
 read -r install_mode
 case "$install_mode" in
 0)
