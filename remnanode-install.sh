@@ -68,7 +68,12 @@ case "$lang" in
     MSG_FIREWALL_NOT_FOUND="No supported firewall tool found. Skipping port configuration."
     MSG_FIREWALL_INACTIVE="Firewall is not active. Skipping port configuration."
     MSG_PORTS_DONE="Port check completed."
-    MSG_MODE_SELECT="Select mode: 1) Full install 2) Open ports only (no reinstall) 3) Clean reinstall (remove old data) 4) Update parameters only"
+    MSG_MODE_SELECT="Select mode:
+0) Exit
+1) Full install
+2) Open ports only (no reinstall)
+3) Clean reinstall (remove old data)
+4) Update parameters only"
     MSG_MODE_INVALID="Invalid mode selected. Full install will be used."
     MSG_ADDITIONAL_PORTS="Enter additional node ports (comma-separated), or leave empty:"
     MSG_PORTS_ONLY_START="Running in ports-only mode."
@@ -121,7 +126,12 @@ case "$lang" in
     MSG_FIREWALL_NOT_FOUND="Поддерживаемый фаервол не найден. Пропускаем настройку портов."
     MSG_FIREWALL_INACTIVE="Фаервол не активен. Пропускаем настройку портов."
     MSG_PORTS_DONE="Проверка портов завершена."
-    MSG_MODE_SELECT="Выберите режим: 1) Полная установка 2) Только открыть порты (без переустановки) 3) Чистая переустановка (удалить старые данные) 4) Только изменение параметров"
+    MSG_MODE_SELECT="Выберите режим:
+0) Выход
+1) Полная установка
+2) Только открыть порты (без переустановки)
+3) Чистая переустановка (удалить старые данные)
+4) Только изменение параметров"
     MSG_MODE_INVALID="Выбран неверный режим. Будет использована полная установка."
     MSG_ADDITIONAL_PORTS="Введите дополнительные порты ноды (через запятую) или оставьте пустым:"
     MSG_PORTS_ONLY_START="Запуск в режиме только открытия портов."
@@ -273,6 +283,10 @@ open_node_ports() {
 echo "$MSG_MODE_SELECT"
 read -r install_mode
 case "$install_mode" in
+0)
+    echo "$MSG_CANCEL"
+    exit 0
+    ;;
 1|2|3|4)
     ;;
 *)
