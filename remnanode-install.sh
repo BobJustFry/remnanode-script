@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260602-menu5"
+INSTALLER_VERSION="20260602-menu6-ipv6"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -63,6 +63,9 @@ case "$lang" in
     MSG_CADDY_REMOVED="Caddy removed."
     MSG_CADDY_UNCHANGED="Caddy left unchanged."
     MSG_IPV6="Disabling IPv6..."
+    MSG_IPV6_ENABLE="Enabling IPv6..."
+    MSG_IPV6_ONLY_START="Running in IPv6 enable-only mode."
+    MSG_IPV6_ENABLE_DONE="IPv6 enabled successfully."
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_PORTS="Checking required ports..."
     MSG_PORT_ALREADY_OPEN="Port already open"
@@ -78,6 +81,7 @@ case "$lang" in
     MSG_MODE_3="3) Clean reinstall (remove old data)"
     MSG_MODE_4="4) Update parameters only"
     MSG_MODE_5="5) Create or update swap (default 2G)"
+    MSG_MODE_6="6) Fully enable IPv6"
     MSG_MODE_INVALID="Invalid mode selected. Full install will be used."
     MSG_ADDITIONAL_PORTS="Enter additional node ports (comma-separated), or leave empty:"
     MSG_PORTS_ONLY_START="Running in ports-only mode."
@@ -132,6 +136,9 @@ case "$lang" in
     MSG_CADDY_REMOVED="Caddy удалён."
     MSG_CADDY_UNCHANGED="Caddy оставлен без изменений."
     MSG_IPV6="Отключение IPv6..."
+    MSG_IPV6_ENABLE="Включение IPv6..."
+    MSG_IPV6_ONLY_START="Запуск в режиме только включения IPv6."
+    MSG_IPV6_ENABLE_DONE="IPv6 успешно включен."
     MSG_BBR="Настройка BBR для оптимизации сети..."
     MSG_PORTS="Проверка необходимых портов..."
     MSG_PORT_ALREADY_OPEN="Порт уже открыт"
@@ -147,6 +154,7 @@ case "$lang" in
     MSG_MODE_3="3) Чистая переустановка (удалить старые данные)"
     MSG_MODE_4="4) Только изменение параметров"
     MSG_MODE_5="5) Создание/обновление swap (по умолчанию 2G)"
+    MSG_MODE_6="6) Полное включение IPv6"
     MSG_MODE_INVALID="Выбран неверный режим. Будет использована полная установка."
     MSG_ADDITIONAL_PORTS="Введите дополнительные порты ноды (через запятую) или оставьте пустым:"
     MSG_PORTS_ONLY_START="Запуск в режиме только открытия портов."
@@ -403,12 +411,66 @@ open_node_ports() {
     echo "$MSG_PORTS_DONE"
 }
 
+ensure_sysctl_setting() {
+    local key="$1"
+    local value="$2"
+    local file="/etc/sysctl.conf"
+    local duplicates
+    local key_escaped
+
+    echo "${key}=${value}" | $SUDO_CMD tee -a "$file" > /dev/null
+
+    duplicates=$($SUDO_CMD awk -F= -v target_key="$key" '
+    {
+        current_key=$1
+        gsub(/[[:space:]]/, "", current_key)
+        if (current_key ~ /^#/) {
+            next
+        }
+        if (current_key == target_key) {
+            count++
+        }
+    }
+    END {
+        print count+0
+    }
+    ' "$file")
+
+    if [ "$duplicates" -gt 1 ]; then
+        key_escaped=$(printf '%s\n' "$key" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        $SUDO_CMD sed -i "/^[[:space:]]*${key_escaped}[[:space:]]*=/d" "$file"
+        echo "${key}=${value}" | $SUDO_CMD tee -a "$file" > /dev/null
+    fi
+}
+
+disable_ipv6() {
+    echo "$MSG_IPV6"
+    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1
+    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=1
+    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=1
+    ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "1"
+    ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "1"
+    ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "1"
+}
+
+enable_ipv6() {
+    echo "$MSG_IPV6_ENABLE"
+    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0
+    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=0
+    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=0
+    ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "0"
+    ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "0"
+    ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "0"
+    $SUDO_CMD sysctl -p
+    echo "$MSG_IPV6_ENABLE_DONE"
+}
+
 show_install_mode_menu() {
     local mode_id
 
     echo "$MSG_INSTALLER_VERSION $INSTALLER_VERSION"
     echo "$MSG_MODE_SELECT"
-    for mode_id in 0 1 2 3 4 5; do
+    for mode_id in 0 1 2 3 4 5 6; do
         eval "echo \"\$MSG_MODE_${mode_id}\""
     done
 }
@@ -420,7 +482,7 @@ case "$install_mode" in
     echo "$MSG_CANCEL"
     exit 0
     ;;
-1|2|3|4|5)
+1|2|3|4|5|6)
     ;;
 *)
     echo "$MSG_MODE_INVALID"
@@ -448,6 +510,12 @@ fi
 if [ "$install_mode" = "5" ]; then
     echo "$MSG_SWAP_ONLY_START"
     run_swap_size_prompt
+    exit 0
+fi
+
+if [ "$install_mode" = "6" ]; then
+    echo "$MSG_IPV6_ONLY_START"
+    enable_ipv6
     exit 0
 fi
 
@@ -626,45 +694,7 @@ if $reconfigure_only; then
     $SUDO_CMD systemctl enable docker
 fi
 
-ensure_sysctl_setting() {
-    local key="$1"
-    local value="$2"
-    local file="/etc/sysctl.conf"
-    local duplicates
-    local key_escaped
-
-    echo "${key}=${value}" | $SUDO_CMD tee -a "$file" > /dev/null
-
-    duplicates=$($SUDO_CMD awk -F= -v target_key="$key" '
-    {
-        current_key=$1
-        gsub(/[[:space:]]/, "", current_key)
-        if (current_key ~ /^#/) {
-            next
-        }
-        if (current_key == target_key) {
-            count++
-        }
-    }
-    END {
-        print count+0
-    }
-    ' "$file")
-
-    if [ "$duplicates" -gt 1 ]; then
-        key_escaped=$(printf '%s\n' "$key" | sed 's/[.[\*^$()+?{|]/\\&/g')
-        $SUDO_CMD sed -i "/^[[:space:]]*${key_escaped}[[:space:]]*=/d" "$file"
-        echo "${key}=${value}" | $SUDO_CMD tee -a "$file" > /dev/null
-    fi
-}
-
-echo "$MSG_IPV6"
-$SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1
-$SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=1
-$SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=1
-ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "1"
-ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "1"
-ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "1"
+disable_ipv6
 
 echo "$MSG_BBR"
 $SUDO_CMD sysctl -w net.core.default_qdisc=fq

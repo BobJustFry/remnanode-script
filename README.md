@@ -117,12 +117,15 @@ sudo ./remnanode-install.sh
 | 3 | Чистая переустановка / Clean reinstall |
 | 4 | Только изменение параметров / Update parameters only |
 | 5 | Создание/обновление swap (по умолчанию 2G) / Create or update swap |
+| 6 | Полное включение IPv6 / Fully enable IPv6 |
 
-Если в меню нет пункта **5**, на сервере лежит старая копия скрипта. Скачайте заново:
+В режимах **1**, **3** и **4** IPv6 отключается автоматически во время установки.
+
+Если в меню нет пункта **6**, на сервере лежит старая копия скрипта. Скачайте заново:
 
 ```bash
 curl -fsSL -o remnanode-install.sh "https://raw.githubusercontent.com/BobJustFry/remnanode-script/main/remnanode-install.sh?$(date +%s)"
-grep -F 'MSG_MODE_5' remnanode-install.sh && grep -F '20260602-menu5' remnanode-install.sh
+grep -F 'MSG_MODE_6' remnanode-install.sh && grep -F '20260602-menu6-ipv6' remnanode-install.sh
 sudo bash remnanode-install.sh
 ```
 
@@ -131,7 +134,7 @@ sudo bash remnanode-install.sh
 При запуске скрипт попросит ввести:
 
 1. **Язык / Language**: Выберите English (1) или Русский (2)
-2. **Режим / Mode**: 0–5 (см. таблицу выше)
+2. **Режим / Mode**: 0–6 (см. таблицу выше)
 3. **NODE_PORT**: Порт для RemnaNode (по умолчанию 2222), в режимах 1/3/4
 4. **SECRET_KEY**: Секретный ключ для RemnaNode (обязательно), в режимах 1/3/4
 
