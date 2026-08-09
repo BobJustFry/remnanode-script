@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260602-menu6-ipv6"
+INSTALLER_VERSION="20260809-gaming"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -33,6 +33,9 @@ additional_ports_input=""
 install_mode="1"
 clean_install=false
 reconfigure_only=false
+gaming_node=false
+swap_configured=false
+mtu_configured=false
 
 case "$lang" in
 1)
@@ -107,6 +110,31 @@ case "$lang" in
     MSG_SWAP_FOUND="Existing swap found. It will be recreated with the new size..."
     MSG_SWAP_CONFIG="Configuring swap..."
     MSG_SWAP_DONE="Swap configured successfully."
+    MSG_GAMING_CONFIRM="Install gaming node tuning (low latency: BBR+, CAKE, MSS clamp, THP off)? (y/n)"
+    MSG_GAMING_SKIP="Skipping gaming node tuning. Basic BBR will be used."
+    MSG_GAMING_CONFIG="Configuring gaming node tuning..."
+    MSG_GAMING_DONE="Gaming node tuning configured successfully."
+    MSG_GAMING_IFACE_FOUND="Detected network interface"
+    MSG_GAMING_IFACE_NOT_FOUND="Could not detect network interface. Skipping CAKE queue setup."
+    MSG_GAMING_CAKE_SKIP="CAKE setup skipped."
+    MSG_CHECKLIST_TITLE="Installation checklist:"
+    MSG_CHECKLIST_OK="[OK]"
+    MSG_CHECKLIST_NO="[NO]"
+    MSG_CHECKLIST_SKIP="[SKIP]"
+    MSG_CHECK_SWAP="Swap"
+    MSG_CHECK_MTU="MTU 1450"
+    MSG_CHECK_UPDATE="System update"
+    MSG_CHECK_DOCKER="Docker"
+    MSG_CHECK_REMNANODE="RemnaNode container"
+    MSG_CHECK_IPV6="IPv6 disabled"
+    MSG_CHECK_BBR="BBR congestion control"
+    MSG_CHECK_GAMING="Gaming node tuning"
+    MSG_CHECK_GAMING_SYSCTL="Gaming sysctl profile"
+    MSG_CHECK_GAMING_CAKE="CAKE queue"
+    MSG_CHECK_GAMING_MSS="MSS clamp"
+    MSG_CHECK_GAMING_THP="Transparent Huge Pages disabled"
+    MSG_CHECK_GAMING_SWAPINESS="vm.swappiness=10"
+    MSG_CHECK_PORTS="Node ports configured"
 ;;
 *)
     MSG_NODE_PORT="Введите NODE_PORT (по умолчанию 2222):"
@@ -180,6 +208,31 @@ case "$lang" in
     MSG_SWAP_FOUND="Обнаружен существующий swap. Он будет пересоздан с новым размером..."
     MSG_SWAP_CONFIG="Настраиваем swap..."
     MSG_SWAP_DONE="Swap успешно настроен."
+    MSG_GAMING_CONFIRM="Установить игровую ноду (низкий пинг: BBR+, CAKE, MSS-clamp, THP off)? (y/n)"
+    MSG_GAMING_SKIP="Пропускаем тюнинг игровой ноды. Будет использован базовый BBR."
+    MSG_GAMING_CONFIG="Настраиваем тюнинг игровой ноды..."
+    MSG_GAMING_DONE="Тюнинг игровой ноды успешно применён."
+    MSG_GAMING_IFACE_FOUND="Обнаружен сетевой интерфейс"
+    MSG_GAMING_IFACE_NOT_FOUND="Не удалось определить сетевой интерфейс. Пропускаем настройку CAKE."
+    MSG_GAMING_CAKE_SKIP="Настройка CAKE пропущена."
+    MSG_CHECKLIST_TITLE="Чеклист установки:"
+    MSG_CHECKLIST_OK="[OK]"
+    MSG_CHECKLIST_NO="[НЕТ]"
+    MSG_CHECKLIST_SKIP="[ПРОПУСК]"
+    MSG_CHECK_SWAP="Swap"
+    MSG_CHECK_MTU="MTU 1450"
+    MSG_CHECK_UPDATE="Обновление системы"
+    MSG_CHECK_DOCKER="Docker"
+    MSG_CHECK_REMNANODE="Контейнер RemnaNode"
+    MSG_CHECK_IPV6="IPv6 отключён"
+    MSG_CHECK_BBR="BBR congestion control"
+    MSG_CHECK_GAMING="Тюнинг игровой ноды"
+    MSG_CHECK_GAMING_SYSCTL="Gaming sysctl профиль"
+    MSG_CHECK_GAMING_CAKE="Очередь CAKE"
+    MSG_CHECK_GAMING_MSS="MSS-clamp"
+    MSG_CHECK_GAMING_THP="Transparent Huge Pages выключен"
+    MSG_CHECK_GAMING_SWAPINESS="vm.swappiness=10"
+    MSG_CHECK_PORTS="Порты ноды настроены"
 ;;
 esac
 
@@ -275,9 +328,11 @@ prompt_configure_swap() {
     case "$response" in
     [yY])
         run_swap_size_prompt
+        swap_configured=true
     ;;
     *)
         echo "$MSG_SWAP_SKIP"
+        swap_configured=false
     ;;
     esac
 }
@@ -445,9 +500,9 @@ ensure_sysctl_setting() {
 
 disable_ipv6() {
     echo "$MSG_IPV6"
-    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1
-    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=1
-    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=1
+    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1 || true
     ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "1"
     ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "1"
     ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "1"
@@ -455,14 +510,351 @@ disable_ipv6() {
 
 enable_ipv6() {
     echo "$MSG_IPV6_ENABLE"
-    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0
-    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=0
-    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=0
+    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1 || true
     ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "0"
     ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "0"
     ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "0"
-    $SUDO_CMD sysctl -p
+    $SUDO_CMD sysctl -p >/dev/null 2>&1 || true
     echo "$MSG_IPV6_ENABLE_DONE"
+}
+
+detect_primary_iface() {
+    local iface
+
+    iface=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+    if [ -n "$iface" ] && [ -d "/sys/class/net/$iface" ]; then
+        printf '%s\n' "$iface"
+        return 0
+    fi
+
+    iface=$(ip -br link show up 2>/dev/null | awk '$1 != "lo" {print $1; exit}' | cut -d'@' -f1)
+    if [ -n "$iface" ] && [ -d "/sys/class/net/$iface" ]; then
+        printf '%s\n' "$iface"
+        return 0
+    fi
+
+    return 1
+}
+
+configure_bbr_basic() {
+    echo "$MSG_BBR"
+    $SUDO_CMD modprobe tcp_bbr 2>/dev/null || true
+    echo tcp_bbr | $SUDO_CMD tee /etc/modules-load.d/bbr.conf > /dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
+    ensure_sysctl_setting "net.core.default_qdisc" "fq"
+    ensure_sysctl_setting "net.ipv4.tcp_congestion_control" "bbr"
+    $SUDO_CMD sysctl -p >/dev/null 2>&1 || true
+}
+
+configure_gaming_node() {
+    local iface
+    local sysctl_file="/etc/sysctl.d/99-remnanode-gaming.conf"
+    local cake_service="/etc/systemd/system/remnanode-gaming-qos.service"
+    local thp_service="/etc/systemd/system/remnanode-disable-thp.service"
+
+    echo "$MSG_GAMING_CONFIG"
+
+    $SUDO_CMD modprobe tcp_bbr 2>/dev/null || true
+    echo tcp_bbr | $SUDO_CMD tee /etc/modules-load.d/bbr.conf > /dev/null
+
+    $SUDO_CMD tee "$sysctl_file" > /dev/null <<'EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_notsent_lowat = 16384
+net.ipv4.tcp_no_metrics_save = 1
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 1048576 16777216
+net.ipv4.tcp_wmem = 4096 1048576 16777216
+net.core.netdev_max_backlog = 16384
+net.core.somaxconn = 8192
+net.ipv4.ip_forward = 1
+vm.swappiness = 10
+EOF
+
+    $SUDO_CMD sysctl --system >/dev/null 2>&1 || $SUDO_CMD sysctl -p "$sysctl_file" >/dev/null 2>&1 || true
+
+    if iface=$(detect_primary_iface); then
+        echo "$MSG_GAMING_IFACE_FOUND: $iface"
+        if ! command -v tc >/dev/null 2>&1; then
+            $SUDO_CMD apt-get update >/dev/null 2>&1 || true
+            $SUDO_CMD apt-get install -y iproute2 >/dev/null 2>&1 || true
+        fi
+
+        if command -v tc >/dev/null 2>&1; then
+            $SUDO_CMD tc qdisc replace dev "$iface" root cake 2>/dev/null || true
+            $SUDO_CMD tee "$cake_service" > /dev/null <<EOF
+[Unit]
+Description=RemnaNode gaming CAKE queue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/tc qdisc replace dev $iface root cake
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+            $SUDO_CMD systemctl daemon-reload
+            $SUDO_CMD systemctl enable --now remnanode-gaming-qos.service >/dev/null 2>&1 || true
+        else
+            echo "$MSG_GAMING_CAKE_SKIP"
+        fi
+    else
+        echo "$MSG_GAMING_IFACE_NOT_FOUND"
+        echo "$MSG_GAMING_CAKE_SKIP"
+    fi
+
+    if command -v iptables >/dev/null 2>&1; then
+        if ! $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 >/dev/null 2>&1; then
+            $SUDO_CMD iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || true
+        fi
+        if ! $SUDO_CMD iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1; then
+            $SUDO_CMD iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+        fi
+
+        DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y iptables-persistent >/dev/null 2>&1 || true
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            $SUDO_CMD netfilter-persistent save >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if [ -w /sys/kernel/mm/transparent_hugepage/enabled ] || [ -e /sys/kernel/mm/transparent_hugepage/enabled ]; then
+        echo never | $SUDO_CMD tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null 2>&1 || true
+    fi
+
+    $SUDO_CMD tee "$thp_service" > /dev/null <<'EOF'
+[Unit]
+Description=Disable Transparent Huge Pages for RemnaNode gaming
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    $SUDO_CMD systemctl daemon-reload
+    $SUDO_CMD systemctl enable --now remnanode-disable-thp.service >/dev/null 2>&1 || true
+
+    echo "$MSG_GAMING_DONE"
+}
+
+prompt_configure_gaming() {
+    echo "$MSG_GAMING_CONFIRM"
+    read -r response
+    case "$response" in
+    [yY])
+        gaming_node=true
+    ;;
+    *)
+        echo "$MSG_GAMING_SKIP"
+        gaming_node=false
+    ;;
+    esac
+}
+
+checklist_status() {
+    local label="$1"
+    local status="$2"
+
+    case "$status" in
+    ok)
+        echo "$MSG_CHECKLIST_OK $label"
+    ;;
+    skip)
+        echo "$MSG_CHECKLIST_SKIP $label"
+    ;;
+    *)
+        echo "$MSG_CHECKLIST_NO $label"
+    ;;
+    esac
+}
+
+is_swap_active() {
+    local swap_out
+    swap_out=$($SUDO_CMD swapon --show=NAME --noheadings 2>/dev/null || true)
+    if [ -n "${swap_out// /}" ]; then
+        return 0
+    fi
+    return 1
+}
+
+is_ipv6_disabled() {
+    local all_v default_v
+    all_v=$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null || echo 0)
+    default_v=$(sysctl -n net.ipv6.conf.default.disable_ipv6 2>/dev/null || echo 0)
+    if [ "$all_v" = "1" ] && [ "$default_v" = "1" ]; then
+        return 0
+    fi
+    return 1
+}
+
+is_bbr_active() {
+    local cc
+    cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)
+    if [ "$cc" = "bbr" ]; then
+        return 0
+    fi
+    return 1
+}
+
+is_remnanode_running() {
+    local names
+    command -v docker >/dev/null 2>&1 || return 1
+    names=$($SUDO_CMD docker ps --format '{{.Names}}' 2>/dev/null || true)
+    if printf '%s\n' "$names" | grep -qx 'remnanode'; then
+        return 0
+    fi
+    return 1
+}
+
+is_cake_active() {
+    local iface
+    local qdisc_line
+    iface=$(detect_primary_iface 2>/dev/null || true)
+    if [ -z "$iface" ]; then
+        return 1
+    fi
+    qdisc_line=$($SUDO_CMD tc qdisc show dev "$iface" 2>/dev/null | head -1 || true)
+    if printf '%s\n' "$qdisc_line" | grep -q 'qdisc cake'; then
+        return 0
+    fi
+    return 1
+}
+
+is_mss_clamp_active() {
+    command -v iptables >/dev/null 2>&1 || return 1
+    if $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+is_thp_disabled() {
+    local thp
+    [ -r /sys/kernel/mm/transparent_hugepage/enabled ] || return 1
+    thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true)
+    if printf '%s' "$thp" | grep -q '\[never\]'; then
+        return 0
+    fi
+    return 1
+}
+
+is_swappiness_10() {
+    local val
+    val=$(sysctl -n vm.swappiness 2>/dev/null || true)
+    if [ "$val" = "10" ]; then
+        return 0
+    fi
+    return 1
+}
+
+is_gaming_sysctl_present() {
+    if [ -f /etc/sysctl.d/99-remnanode-gaming.conf ]; then
+        return 0
+    fi
+    return 1
+}
+
+print_install_checklist() {
+    echo ""
+    echo "$MSG_CHECKLIST_TITLE"
+
+    if $swap_configured && is_swap_active; then
+        checklist_status "$MSG_CHECK_SWAP" ok
+    elif $swap_configured; then
+        checklist_status "$MSG_CHECK_SWAP" no
+    elif is_swap_active; then
+        checklist_status "$MSG_CHECK_SWAP" ok
+    else
+        checklist_status "$MSG_CHECK_SWAP" skip
+    fi
+
+    if $mtu_configured; then
+        checklist_status "$MSG_CHECK_MTU" ok
+    else
+        checklist_status "$MSG_CHECK_MTU" skip
+    fi
+
+    if $skip_update; then
+        checklist_status "$MSG_CHECK_UPDATE" skip
+    else
+        checklist_status "$MSG_CHECK_UPDATE" ok
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        checklist_status "$MSG_CHECK_DOCKER" ok
+    else
+        checklist_status "$MSG_CHECK_DOCKER" no
+    fi
+
+    if is_remnanode_running; then
+        checklist_status "$MSG_CHECK_REMNANODE" ok
+    else
+        checklist_status "$MSG_CHECK_REMNANODE" no
+    fi
+
+    if is_ipv6_disabled; then
+        checklist_status "$MSG_CHECK_IPV6" ok
+    else
+        checklist_status "$MSG_CHECK_IPV6" no
+    fi
+
+    if is_bbr_active; then
+        checklist_status "$MSG_CHECK_BBR" ok
+    else
+        checklist_status "$MSG_CHECK_BBR" no
+    fi
+
+    checklist_status "$MSG_CHECK_PORTS" ok
+
+    if $gaming_node; then
+        checklist_status "$MSG_CHECK_GAMING" ok
+
+        if is_gaming_sysctl_present; then
+            checklist_status "  - $MSG_CHECK_GAMING_SYSCTL" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_SYSCTL" no
+        fi
+
+        if is_cake_active; then
+            checklist_status "  - $MSG_CHECK_GAMING_CAKE" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_CAKE" no
+        fi
+
+        if is_mss_clamp_active; then
+            checklist_status "  - $MSG_CHECK_GAMING_MSS" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_MSS" no
+        fi
+
+        if is_thp_disabled; then
+            checklist_status "  - $MSG_CHECK_GAMING_THP" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_THP" no
+        fi
+
+        if is_swappiness_10; then
+            checklist_status "  - $MSG_CHECK_GAMING_SWAPINESS" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_SWAPINESS" no
+        fi
+    else
+        checklist_status "$MSG_CHECK_GAMING" skip
+    fi
+
+    echo ""
 }
 
 show_install_mode_menu() {
@@ -534,12 +926,22 @@ echo "$MSG_MTU_CONFIRM"
 read -r response
 case "$response" in
 [yY])
-    $SUDO_CMD netplan set ethernets.eth0.mtu=1450 && $SUDO_CMD netplan apply
+    if $SUDO_CMD netplan set ethernets.eth0.mtu=1450 && $SUDO_CMD netplan apply; then
+        mtu_configured=true
+        skip_mtu=false
+    else
+        mtu_configured=false
+        skip_mtu=true
+    fi
 ;;
 *)
     echo "$MSG_SKIP_MTU"
+    mtu_configured=false
+    skip_mtu=true
 ;;
 esac
+
+prompt_configure_gaming
 
 echo "$MSG_NODE_PORT"
 read -r NODE_PORT
@@ -696,12 +1098,11 @@ fi
 
 disable_ipv6
 
-echo "$MSG_BBR"
-$SUDO_CMD sysctl -w net.core.default_qdisc=fq
-$SUDO_CMD sysctl -w net.ipv4.tcp_congestion_control=bbr
-ensure_sysctl_setting "net.core.default_qdisc" "fq"
-ensure_sysctl_setting "net.ipv4.tcp_congestion_control" "bbr"
-$SUDO_CMD sysctl -p
+if $gaming_node; then
+    configure_gaming_node
+else
+    configure_bbr_basic
+fi
 
 open_node_ports "$NODE_PORT" "$additional_ports_input"
 
@@ -741,6 +1142,10 @@ $SUDO_CMD chmod 644 /opt/remnanode/docker-compose.yml
 
 cd /opt/remnanode && $SUDO_CMD docker compose up -d --force-recreate
 
+# Give the container a moment to appear in docker ps before checklist.
+sleep 2
+
+print_install_checklist
 
 echo "$MSG_COMPLETE"
 echo "$MSG_REBOOT"
