@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260809-gaming-nohang2"
+INSTALLER_VERSION="20260809-repair8"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -89,11 +89,16 @@ case "$lang" in
     MSG_MODE_5="5) Create or update swap (default 2G)"
     MSG_MODE_6="6) Fully enable IPv6"
     MSG_MODE_7="7) Enable or disable gaming node tuning"
+    MSG_MODE_8="8) Repair host parameters (iface/MTU/IPv6/gaming)"
     MSG_MODE_INVALID="Invalid mode selected. Full install will be used."
     MSG_ADDITIONAL_PORTS="Enter additional node ports (comma-separated), or leave empty:"
     MSG_PORTS_ONLY_START="Running in ports-only mode."
     MSG_SWAP_ONLY_START="Running in swap-only mode."
     MSG_GAMING_ONLY_START="Running in gaming-tuning mode."
+    MSG_REPAIR_ONLY_START="Running host parameters repair mode."
+    MSG_REPAIR_DONE="Host parameters repair completed."
+    MSG_CHECK_IFACE="Network interface"
+    MSG_CHECK_MSS="MSS clamp 1360"
     MSG_GAMING_MENU="Gaming node tuning:"
     MSG_GAMING_MENU_1="1) Enable gaming tuning"
     MSG_GAMING_MENU_2="2) Disable gaming tuning"
@@ -113,6 +118,10 @@ case "$lang" in
     MSG_REBOOT="If the system was updated, a reboot may be required (check with sudo reboot if needed)."
     MSG_MTU_CONFIRM="Set MTU to 1450 for hosts using DDoS protection? (y/n)"
     MSG_SKIP_MTU="Skipping MTU configuration."
+    MSG_MTU_CONFIG="Setting MTU 1450..."
+    MSG_MTU_DONE="MTU 1450 applied on interface"
+    MSG_MTU_FAIL="Failed to set MTU 1450."
+    MSG_MTU_IFACE_NOT_FOUND="Could not detect network interface. Skipping MTU configuration."
     MSG_SWAP_CONFIRM="Install or reconfigure swap? (default 2G) (y/n)"
     MSG_SWAP_SIZE="Enter swap size (default 2G, examples: 2G, 2048M):"
     MSG_SWAP_SKIP="Skipping swap configuration."
@@ -203,11 +212,16 @@ case "$lang" in
     MSG_MODE_5="5) Создание/обновление swap (по умолчанию 2G)"
     MSG_MODE_6="6) Полное включение IPv6"
     MSG_MODE_7="7) Включить или отключить тюнинг игровой ноды"
+    MSG_MODE_8="8) Починить параметры хоста (интерфейс/MTU/IPv6/gaming)"
     MSG_MODE_INVALID="Выбран неверный режим. Будет использована полная установка."
     MSG_ADDITIONAL_PORTS="Введите дополнительные порты ноды (через запятую) или оставьте пустым:"
     MSG_PORTS_ONLY_START="Запуск в режиме только открытия портов."
     MSG_SWAP_ONLY_START="Запуск в режиме только настройки swap."
     MSG_GAMING_ONLY_START="Запуск в режиме настройки игровой ноды."
+    MSG_REPAIR_ONLY_START="Запуск режима починки параметров хоста."
+    MSG_REPAIR_DONE="Починка параметров хоста завершена."
+    MSG_CHECK_IFACE="Сетевой интерфейс"
+    MSG_CHECK_MSS="MSS-clamp 1360"
     MSG_GAMING_MENU="Тюнинг игровой ноды:"
     MSG_GAMING_MENU_1="1) Включить игровой тюнинг"
     MSG_GAMING_MENU_2="2) Отключить игровой тюнинг"
@@ -227,6 +241,10 @@ case "$lang" in
     MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с sudo reboot если нужно)."
     MSG_MTU_CONFIRM="Установить MTU в 1450 для хостов, использующих защиту от DDoS-атак? (y/n)"
     MSG_SKIP_MTU="Пропускаем настройку MTU."
+    MSG_MTU_CONFIG="Устанавливаем MTU 1450..."
+    MSG_MTU_DONE="MTU 1450 применён на интерфейсе"
+    MSG_MTU_FAIL="Не удалось установить MTU 1450."
+    MSG_MTU_IFACE_NOT_FOUND="Не удалось определить сетевой интерфейс. Пропускаем настройку MTU."
     MSG_SWAP_CONFIRM="Установить или перенастроить swap? (по умолчанию 2G) (y/n)"
     MSG_SWAP_SIZE="Введите размер swap (по умолчанию 2G, примеры: 2G, 2048M):"
     MSG_SWAP_SKIP="Пропускаем настройку swap."
@@ -584,13 +602,100 @@ detect_primary_iface() {
         return 0
     fi
 
-    iface=$(ip -br link show up 2>/dev/null | awk '$1 != "lo" {print $1; exit}' | cut -d'@' -f1)
+    iface=$(ip -br link show up 2>/dev/null | awk '$1 != "lo" && $1 != "docker0" && $1 !~ /^br-/ && $1 !~ /^veth/ && $1 !~ /^ifb/ {print $1; exit}' | cut -d'@' -f1)
     if [ -n "$iface" ] && [ -d "/sys/class/net/$iface" ]; then
         printf '%s\n' "$iface"
         return 0
     fi
 
     return 1
+}
+
+configure_mtu_1450() {
+    local iface
+    local mtu_service="/etc/systemd/system/remnanode-mtu.service"
+    local current_mtu
+
+    echo "$MSG_MTU_CONFIG"
+
+    if ! iface=$(detect_primary_iface); then
+        echo "$MSG_MTU_IFACE_NOT_FOUND"
+        return 1
+    fi
+
+    echo "$MSG_GAMING_IFACE_FOUND: $iface"
+
+    if ! $SUDO_CMD ip link set dev "$iface" mtu 1450; then
+        echo "$MSG_MTU_FAIL"
+        return 1
+    fi
+
+    current_mtu=$(cat "/sys/class/net/$iface/mtu" 2>/dev/null || true)
+    if [ "$current_mtu" != "1450" ]; then
+        echo "$MSG_MTU_FAIL"
+        return 1
+    fi
+
+    # Persist across reboot without netplan set (netplan set is unsafe / iface-specific).
+    $SUDO_CMD tee "$mtu_service" > /dev/null <<EOF
+[Unit]
+Description=RemnaNode set MTU 1450 on $iface
+After=network-pre.target
+Before=network.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip link set dev $iface mtu 1450
+RemainAfterExit=yes
+TimeoutStartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+    $SUDO_CMD systemctl enable remnanode-mtu.service >/dev/null 2>&1 || true
+
+    echo "$MSG_MTU_DONE: $iface"
+    return 0
+}
+
+ensure_mss_1360() {
+    echo "$MSG_GAMING_STEP_MSS"
+
+    if ! command -v iptables >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Remove wrong/old MSS values, then set gaming default 1360.
+    while $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200 >/dev/null 2>&1; do
+        $SUDO_CMD iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200 2>/dev/null || break
+    done
+    while $SUDO_CMD iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200 >/dev/null 2>&1; do
+        $SUDO_CMD iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200 2>/dev/null || break
+    done
+    while $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 >/dev/null 2>&1; do
+        $SUDO_CMD iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || break
+    done
+
+    $SUDO_CMD iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || true
+
+    if ! $SUDO_CMD iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1; then
+        $SUDO_CMD iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+    fi
+
+    if ! dpkg -s iptables-persistent >/dev/null 2>&1; then
+        echo "$MSG_GAMING_STEP_APT: iptables-persistent"
+        echo 'iptables-persistent iptables-persistent/autosave_v4 boolean true' | $SUDO_CMD debconf-set-selections
+        echo 'iptables-persistent iptables-persistent/autosave_v6 boolean true' | $SUDO_CMD debconf-set-selections
+        DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y iptables-persistent >/dev/null 2>&1 || true
+    fi
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+        $SUDO_CMD netfilter-persistent save >/dev/null 2>&1 || true
+    fi
+
+    return 0
 }
 
 configure_bbr_basic() {
@@ -677,24 +782,7 @@ EOF
     fi
 
     echo "$MSG_GAMING_STEP_MSS"
-    if command -v iptables >/dev/null 2>&1; then
-        if ! $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 >/dev/null 2>&1; then
-            $SUDO_CMD iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || true
-        fi
-        if ! $SUDO_CMD iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1; then
-            $SUDO_CMD iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-        fi
-
-        if ! dpkg -s iptables-persistent >/dev/null 2>&1; then
-            echo "$MSG_GAMING_STEP_APT: iptables-persistent"
-            echo 'iptables-persistent iptables-persistent/autosave_v4 boolean true' | $SUDO_CMD debconf-set-selections
-            echo 'iptables-persistent iptables-persistent/autosave_v6 boolean true' | $SUDO_CMD debconf-set-selections
-            DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y iptables-persistent >/dev/null 2>&1 || true
-        fi
-        if command -v netfilter-persistent >/dev/null 2>&1; then
-            $SUDO_CMD netfilter-persistent save >/dev/null 2>&1 || true
-        fi
-    fi
+    ensure_mss_1360
 
     echo "$MSG_GAMING_STEP_THP"
     if [ -e /sys/kernel/mm/transparent_hugepage/enabled ]; then
@@ -851,6 +939,135 @@ run_gaming_only_mode() {
     esac
 }
 
+print_repair_checklist() {
+    local iface
+
+    echo ""
+    echo "$MSG_CHECKLIST_TITLE"
+
+    if iface=$(detect_primary_iface); then
+        checklist_status "$MSG_CHECK_IFACE: $iface" ok
+    else
+        checklist_status "$MSG_CHECK_IFACE" no
+    fi
+
+    if $mtu_configured; then
+        if is_mtu_1450_active; then
+            checklist_status "$MSG_CHECK_MTU" ok
+        else
+            checklist_status "$MSG_CHECK_MTU" no
+        fi
+    else
+        checklist_status "$MSG_CHECK_MTU" skip
+    fi
+
+    if $ipv6_disable; then
+        if is_ipv6_disabled; then
+            checklist_status "$MSG_CHECK_IPV6" ok
+        else
+            checklist_status "$MSG_CHECK_IPV6" no
+        fi
+    else
+        if is_ipv6_disabled; then
+            checklist_status "$MSG_CHECK_IPV6_ENABLED" no
+        else
+            checklist_status "$MSG_CHECK_IPV6_ENABLED" ok
+        fi
+    fi
+
+    if is_bbr_active; then
+        checklist_status "$MSG_CHECK_BBR" ok
+    else
+        checklist_status "$MSG_CHECK_BBR" no
+    fi
+
+    if is_mss_clamp_active; then
+        checklist_status "$MSG_CHECK_MSS" ok
+    else
+        if $mtu_configured || $gaming_node; then
+            checklist_status "$MSG_CHECK_MSS" no
+        else
+            checklist_status "$MSG_CHECK_MSS" skip
+        fi
+    fi
+
+    if $gaming_node; then
+        checklist_status "$MSG_CHECK_GAMING" ok
+        if is_gaming_sysctl_present; then
+            checklist_status "  - $MSG_CHECK_GAMING_SYSCTL" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_SYSCTL" no
+        fi
+        if is_cake_active; then
+            checklist_status "  - $MSG_CHECK_GAMING_CAKE" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_CAKE" no
+        fi
+        if is_thp_disabled; then
+            checklist_status "  - $MSG_CHECK_GAMING_THP" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_THP" no
+        fi
+        if is_swappiness_10; then
+            checklist_status "  - $MSG_CHECK_GAMING_SWAPINESS" ok
+        else
+            checklist_status "  - $MSG_CHECK_GAMING_SWAPINESS" no
+        fi
+    else
+        checklist_status "$MSG_CHECK_GAMING" skip
+    fi
+
+    echo ""
+}
+
+run_repair_host_mode() {
+    local iface
+    local response
+
+    echo "$MSG_REPAIR_ONLY_START"
+
+    if iface=$(detect_primary_iface); then
+        echo "$MSG_GAMING_IFACE_FOUND: $iface"
+    else
+        echo "$MSG_MTU_IFACE_NOT_FOUND"
+        exit 1
+    fi
+
+    echo "$MSG_MTU_CONFIRM"
+    read -r response
+    case "$response" in
+    [yY])
+        if configure_mtu_1450; then
+            mtu_configured=true
+        else
+            mtu_configured=false
+        fi
+    ;;
+    *)
+        echo "$MSG_SKIP_MTU"
+        mtu_configured=false
+    ;;
+    esac
+
+    prompt_configure_gaming
+    prompt_configure_ipv6
+
+    if $gaming_node; then
+        configure_gaming_node
+    else
+        disable_gaming_node
+        # DDoS/MTU nodes still need correct MSS even without full gaming profile.
+        if $mtu_configured; then
+            ensure_mss_1360
+        fi
+    fi
+
+    apply_ipv6_choice
+
+    print_repair_checklist
+    echo "$MSG_REPAIR_DONE"
+}
+
 prompt_configure_gaming() {
     echo "$MSG_GAMING_CONFIRM"
     read -r response
@@ -968,6 +1185,21 @@ is_gaming_sysctl_present() {
     return 1
 }
 
+is_mtu_1450_active() {
+    local iface
+    local current_mtu
+
+    iface=$(detect_primary_iface 2>/dev/null || true)
+    if [ -z "$iface" ]; then
+        return 1
+    fi
+    current_mtu=$(cat "/sys/class/net/$iface/mtu" 2>/dev/null || true)
+    if [ "$current_mtu" = "1450" ]; then
+        return 0
+    fi
+    return 1
+}
+
 print_install_checklist() {
     echo ""
     echo "$MSG_CHECKLIST_TITLE"
@@ -982,8 +1214,10 @@ print_install_checklist() {
         checklist_status "$MSG_CHECK_SWAP" skip
     fi
 
-    if $mtu_configured; then
+    if $mtu_configured && is_mtu_1450_active; then
         checklist_status "$MSG_CHECK_MTU" ok
+    elif $mtu_configured; then
+        checklist_status "$MSG_CHECK_MTU" no
     else
         checklist_status "$MSG_CHECK_MTU" skip
     fi
@@ -1072,7 +1306,7 @@ show_install_mode_menu() {
 
     echo "$MSG_INSTALLER_VERSION $INSTALLER_VERSION"
     echo "$MSG_MODE_SELECT"
-    for mode_id in 0 1 2 3 4 5 6 7; do
+    for mode_id in 0 1 2 3 4 5 6 7 8; do
         eval "echo \"\$MSG_MODE_${mode_id}\""
     done
 }
@@ -1084,7 +1318,7 @@ case "$install_mode" in
     echo "$MSG_CANCEL"
     exit 0
     ;;
-1|2|3|4|5|6|7)
+1|2|3|4|5|6|7|8)
     ;;
 *)
     echo "$MSG_MODE_INVALID"
@@ -1126,6 +1360,11 @@ if [ "$install_mode" = "7" ]; then
     exit 0
 fi
 
+if [ "$install_mode" = "8" ]; then
+    run_repair_host_mode
+    exit 0
+fi
+
 if [ "$install_mode" = "3" ]; then
     clean_install=true
 fi
@@ -1141,7 +1380,7 @@ echo "$MSG_MTU_CONFIRM"
 read -r response
 case "$response" in
 [yY])
-    if $SUDO_CMD netplan set ethernets.eth0.mtu=1450 && $SUDO_CMD netplan apply; then
+    if configure_mtu_1450; then
         mtu_configured=true
         skip_mtu=false
     else
