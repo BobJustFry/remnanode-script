@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260809-ipv6-ask"
+INSTALLER_VERSION="20260809-gaming-menu7"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -88,10 +88,18 @@ case "$lang" in
     MSG_MODE_4="4) Update parameters only"
     MSG_MODE_5="5) Create or update swap (default 2G)"
     MSG_MODE_6="6) Fully enable IPv6"
+    MSG_MODE_7="7) Enable or disable gaming node tuning"
     MSG_MODE_INVALID="Invalid mode selected. Full install will be used."
     MSG_ADDITIONAL_PORTS="Enter additional node ports (comma-separated), or leave empty:"
     MSG_PORTS_ONLY_START="Running in ports-only mode."
     MSG_SWAP_ONLY_START="Running in swap-only mode."
+    MSG_GAMING_ONLY_START="Running in gaming-tuning mode."
+    MSG_GAMING_MENU="Gaming node tuning:"
+    MSG_GAMING_MENU_1="1) Enable gaming tuning"
+    MSG_GAMING_MENU_2="2) Disable gaming tuning"
+    MSG_GAMING_MENU_INVALID="Invalid choice. Exiting."
+    MSG_GAMING_DISABLE="Disabling gaming node tuning..."
+    MSG_GAMING_DISABLE_DONE="Gaming node tuning disabled. Basic BBR left enabled."
     MSG_SAVED_NODE_PORT_FOUND="Found NODE_PORT from existing installation"
     MSG_SAVED_NODE_PORT_NOT_FOUND="NODE_PORT from existing installation was not found. Using default 2222."
     MSG_NO_VALID_PORTS="No valid ports provided. Skipping port changes."
@@ -189,10 +197,18 @@ case "$lang" in
     MSG_MODE_4="4) Только изменение параметров"
     MSG_MODE_5="5) Создание/обновление swap (по умолчанию 2G)"
     MSG_MODE_6="6) Полное включение IPv6"
+    MSG_MODE_7="7) Включить или отключить тюнинг игровой ноды"
     MSG_MODE_INVALID="Выбран неверный режим. Будет использована полная установка."
     MSG_ADDITIONAL_PORTS="Введите дополнительные порты ноды (через запятую) или оставьте пустым:"
     MSG_PORTS_ONLY_START="Запуск в режиме только открытия портов."
     MSG_SWAP_ONLY_START="Запуск в режиме только настройки swap."
+    MSG_GAMING_ONLY_START="Запуск в режиме настройки игровой ноды."
+    MSG_GAMING_MENU="Тюнинг игровой ноды:"
+    MSG_GAMING_MENU_1="1) Включить игровой тюнинг"
+    MSG_GAMING_MENU_2="2) Отключить игровой тюнинг"
+    MSG_GAMING_MENU_INVALID="Неверный выбор. Выход."
+    MSG_GAMING_DISABLE="Отключаем тюнинг игровой ноды..."
+    MSG_GAMING_DISABLE_DONE="Тюнинг игровой ноды отключён. Базовый BBR оставлен включённым."
     MSG_SAVED_NODE_PORT_FOUND="Найден NODE_PORT из существующей установки"
     MSG_SAVED_NODE_PORT_NOT_FOUND="NODE_PORT из существующей установки не найден. Используется 2222 по умолчанию."
     MSG_NO_VALID_PORTS="Валидные порты не указаны. Пропускаем изменение портов."
@@ -678,6 +694,130 @@ EOF
     echo "$MSG_GAMING_DONE"
 }
 
+disable_gaming_node() {
+    local iface
+    local sysctl_file="/etc/sysctl.d/99-remnanode-gaming.conf"
+    local cake_service="/etc/systemd/system/remnanode-gaming-qos.service"
+    local thp_service="/etc/systemd/system/remnanode-disable-thp.service"
+
+    echo "$MSG_GAMING_DISABLE"
+
+    if [ -f "$sysctl_file" ]; then
+        $SUDO_CMD rm -f "$sysctl_file"
+    fi
+
+    $SUDO_CMD sysctl -w vm.swappiness=60 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl --system >/dev/null 2>&1 || true
+
+    if iface=$(detect_primary_iface); then
+        if command -v tc >/dev/null 2>&1; then
+            $SUDO_CMD tc qdisc del dev "$iface" root 2>/dev/null || true
+            $SUDO_CMD tc qdisc replace dev "$iface" root fq 2>/dev/null || true
+        fi
+    fi
+
+    if [ -f "$cake_service" ]; then
+        $SUDO_CMD systemctl disable --now remnanode-gaming-qos.service >/dev/null 2>&1 || true
+        $SUDO_CMD rm -f "$cake_service"
+    fi
+
+    if command -v iptables >/dev/null 2>&1; then
+        while $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 >/dev/null 2>&1; do
+            $SUDO_CMD iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || break
+        done
+        while $SUDO_CMD iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1; do
+            $SUDO_CMD iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || break
+        done
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            $SUDO_CMD netfilter-persistent save >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if [ -f "$thp_service" ]; then
+        $SUDO_CMD systemctl disable --now remnanode-disable-thp.service >/dev/null 2>&1 || true
+        $SUDO_CMD rm -f "$thp_service"
+    fi
+    $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+
+    if [ -e /sys/kernel/mm/transparent_hugepage/enabled ]; then
+        echo madvise | $SUDO_CMD tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null 2>&1 || true
+    fi
+
+    configure_bbr_basic
+
+    echo "$MSG_GAMING_DISABLE_DONE"
+}
+
+print_gaming_status_checklist() {
+    echo ""
+    echo "$MSG_CHECKLIST_TITLE"
+
+    if is_gaming_sysctl_present; then
+        checklist_status "$MSG_CHECK_GAMING_SYSCTL" ok
+    else
+        checklist_status "$MSG_CHECK_GAMING_SYSCTL" no
+    fi
+
+    if is_cake_active; then
+        checklist_status "$MSG_CHECK_GAMING_CAKE" ok
+    else
+        checklist_status "$MSG_CHECK_GAMING_CAKE" no
+    fi
+
+    if is_mss_clamp_active; then
+        checklist_status "$MSG_CHECK_GAMING_MSS" ok
+    else
+        checklist_status "$MSG_CHECK_GAMING_MSS" no
+    fi
+
+    if is_thp_disabled; then
+        checklist_status "$MSG_CHECK_GAMING_THP" ok
+    else
+        checklist_status "$MSG_CHECK_GAMING_THP" no
+    fi
+
+    if is_swappiness_10; then
+        checklist_status "$MSG_CHECK_GAMING_SWAPINESS" ok
+    else
+        checklist_status "$MSG_CHECK_GAMING_SWAPINESS" no
+    fi
+
+    if is_bbr_active; then
+        checklist_status "$MSG_CHECK_BBR" ok
+    else
+        checklist_status "$MSG_CHECK_BBR" no
+    fi
+
+    echo ""
+}
+
+run_gaming_only_mode() {
+    local gaming_choice
+
+    echo "$MSG_GAMING_ONLY_START"
+    echo "$MSG_GAMING_MENU"
+    echo "$MSG_GAMING_MENU_1"
+    echo "$MSG_GAMING_MENU_2"
+    read -r gaming_choice
+
+    case "$gaming_choice" in
+    1)
+        configure_gaming_node
+        gaming_node=true
+        print_gaming_status_checklist
+    ;;
+    2)
+        disable_gaming_node
+        gaming_node=false
+        print_gaming_status_checklist
+    ;;
+    *)
+        echo "$MSG_GAMING_MENU_INVALID"
+        exit 1
+    ;;
+    esac
+}
+
 prompt_configure_gaming() {
     echo "$MSG_GAMING_CONFIRM"
     read -r response
@@ -899,7 +1039,7 @@ show_install_mode_menu() {
 
     echo "$MSG_INSTALLER_VERSION $INSTALLER_VERSION"
     echo "$MSG_MODE_SELECT"
-    for mode_id in 0 1 2 3 4 5 6; do
+    for mode_id in 0 1 2 3 4 5 6 7; do
         eval "echo \"\$MSG_MODE_${mode_id}\""
     done
 }
@@ -911,7 +1051,7 @@ case "$install_mode" in
     echo "$MSG_CANCEL"
     exit 0
     ;;
-1|2|3|4|5|6)
+1|2|3|4|5|6|7)
     ;;
 *)
     echo "$MSG_MODE_INVALID"
@@ -945,6 +1085,11 @@ fi
 if [ "$install_mode" = "6" ]; then
     echo "$MSG_IPV6_ONLY_START"
     enable_ipv6
+    exit 0
+fi
+
+if [ "$install_mode" = "7" ]; then
+    run_gaming_only_mode
     exit 0
 fi
 
