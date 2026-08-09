@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260809-gaming"
+INSTALLER_VERSION="20260809-ipv6-ask"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -36,6 +36,7 @@ reconfigure_only=false
 gaming_node=false
 swap_configured=false
 mtu_configured=false
+ipv6_disable=true
 
 case "$lang" in
 1)
@@ -67,8 +68,10 @@ case "$lang" in
     MSG_CADDY_UNCHANGED="Caddy left unchanged."
     MSG_IPV6="Disabling IPv6..."
     MSG_IPV6_ENABLE="Enabling IPv6..."
+    MSG_IPV6_CONFIRM="Disable IPv6? (y = disable / n = enable)"
     MSG_IPV6_ONLY_START="Running in IPv6 enable-only mode."
     MSG_IPV6_ENABLE_DONE="IPv6 enabled successfully."
+    MSG_IPV6_DISABLE_DONE="IPv6 disabled successfully."
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_PORTS="Checking required ports..."
     MSG_PORT_ALREADY_OPEN="Port already open"
@@ -127,6 +130,7 @@ case "$lang" in
     MSG_CHECK_DOCKER="Docker"
     MSG_CHECK_REMNANODE="RemnaNode container"
     MSG_CHECK_IPV6="IPv6 disabled"
+    MSG_CHECK_IPV6_ENABLED="IPv6 enabled"
     MSG_CHECK_BBR="BBR congestion control"
     MSG_CHECK_GAMING="Gaming node tuning"
     MSG_CHECK_GAMING_SYSCTL="Gaming sysctl profile"
@@ -165,8 +169,10 @@ case "$lang" in
     MSG_CADDY_UNCHANGED="Caddy оставлен без изменений."
     MSG_IPV6="Отключение IPv6..."
     MSG_IPV6_ENABLE="Включение IPv6..."
+    MSG_IPV6_CONFIRM="Отключить IPv6? (y = отключить / n = включить)"
     MSG_IPV6_ONLY_START="Запуск в режиме только включения IPv6."
     MSG_IPV6_ENABLE_DONE="IPv6 успешно включен."
+    MSG_IPV6_DISABLE_DONE="IPv6 успешно отключен."
     MSG_BBR="Настройка BBR для оптимизации сети..."
     MSG_PORTS="Проверка необходимых портов..."
     MSG_PORT_ALREADY_OPEN="Порт уже открыт"
@@ -225,6 +231,7 @@ case "$lang" in
     MSG_CHECK_DOCKER="Docker"
     MSG_CHECK_REMNANODE="Контейнер RemnaNode"
     MSG_CHECK_IPV6="IPv6 отключён"
+    MSG_CHECK_IPV6_ENABLED="IPv6 включён"
     MSG_CHECK_BBR="BBR congestion control"
     MSG_CHECK_GAMING="Тюнинг игровой ноды"
     MSG_CHECK_GAMING_SYSCTL="Gaming sysctl профиль"
@@ -506,6 +513,7 @@ disable_ipv6() {
     ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "1"
     ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "1"
     ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "1"
+    echo "$MSG_IPV6_DISABLE_DONE"
 }
 
 enable_ipv6() {
@@ -518,6 +526,27 @@ enable_ipv6() {
     ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "0"
     $SUDO_CMD sysctl -p >/dev/null 2>&1 || true
     echo "$MSG_IPV6_ENABLE_DONE"
+}
+
+prompt_configure_ipv6() {
+    echo "$MSG_IPV6_CONFIRM"
+    read -r response
+    case "$response" in
+    [yY])
+        ipv6_disable=true
+    ;;
+    *)
+        ipv6_disable=false
+    ;;
+    esac
+}
+
+apply_ipv6_choice() {
+    if $ipv6_disable; then
+        disable_ipv6
+    else
+        enable_ipv6
+    fi
 }
 
 detect_primary_iface() {
@@ -804,10 +833,18 @@ print_install_checklist() {
         checklist_status "$MSG_CHECK_REMNANODE" no
     fi
 
-    if is_ipv6_disabled; then
-        checklist_status "$MSG_CHECK_IPV6" ok
+    if $ipv6_disable; then
+        if is_ipv6_disabled; then
+            checklist_status "$MSG_CHECK_IPV6" ok
+        else
+            checklist_status "$MSG_CHECK_IPV6" no
+        fi
     else
-        checklist_status "$MSG_CHECK_IPV6" no
+        if is_ipv6_disabled; then
+            checklist_status "$MSG_CHECK_IPV6_ENABLED" no
+        else
+            checklist_status "$MSG_CHECK_IPV6_ENABLED" ok
+        fi
     fi
 
     if is_bbr_active; then
@@ -942,6 +979,8 @@ case "$response" in
 esac
 
 prompt_configure_gaming
+
+prompt_configure_ipv6
 
 echo "$MSG_NODE_PORT"
 read -r NODE_PORT
@@ -1096,7 +1135,7 @@ if $reconfigure_only; then
     $SUDO_CMD systemctl enable docker
 fi
 
-disable_ipv6
+apply_ipv6_choice
 
 if $gaming_node; then
     configure_gaming_node
