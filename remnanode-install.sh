@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260809-gaming-fixhang"
+INSTALLER_VERSION="20260809-gaming-nohang2"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -646,26 +646,28 @@ EOF
         fi
 
         if command -v tc >/dev/null 2>&1; then
-            $SUDO_CMD tc qdisc replace dev "$iface" root cake 2>/dev/null || true
+            # Apply immediately; do not block on systemctl start/network targets.
+            timeout 10 $SUDO_CMD tc qdisc replace dev "$iface" root cake >/dev/null 2>&1 \
+                || $SUDO_CMD tc qdisc replace dev "$iface" root cake >/dev/null 2>&1 \
+                || true
             $SUDO_CMD tee "$cake_service" > /dev/null <<EOF
 [Unit]
 Description=RemnaNode gaming CAKE queue
-After=network.target
-Wants=network.target
+After=network-pre.target
+DefaultDependencies=no
 
 [Service]
 Type=oneshot
 ExecStart=/sbin/tc qdisc replace dev $iface root cake
 RemainAfterExit=yes
-TimeoutStartSec=15
+TimeoutStartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
             $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+            # Enable for reboot only — starting now can hang on some VPS.
             $SUDO_CMD systemctl enable remnanode-gaming-qos.service >/dev/null 2>&1 || true
-            # Avoid long waits on network-online; apply CAKE directly above.
-            timeout 15 $SUDO_CMD systemctl start remnanode-gaming-qos.service >/dev/null 2>&1 || true
         else
             echo "$MSG_GAMING_CAKE_SKIP"
         fi
@@ -714,8 +716,8 @@ TimeoutStartSec=10
 WantedBy=multi-user.target
 EOF
     $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+    # Enable for reboot only; THP already applied above.
     $SUDO_CMD systemctl enable remnanode-disable-thp.service >/dev/null 2>&1 || true
-    timeout 10 $SUDO_CMD systemctl start remnanode-disable-thp.service >/dev/null 2>&1 || true
 
     echo "$MSG_GAMING_DONE"
 }
@@ -733,17 +735,21 @@ disable_gaming_node() {
     fi
 
     $SUDO_CMD sysctl -w vm.swappiness=60 >/dev/null 2>&1 || true
-    $SUDO_CMD sysctl --system >/dev/null 2>&1 || true
 
     if iface=$(detect_primary_iface); then
         if command -v tc >/dev/null 2>&1; then
-            $SUDO_CMD tc qdisc del dev "$iface" root 2>/dev/null || true
-            $SUDO_CMD tc qdisc replace dev "$iface" root fq 2>/dev/null || true
+            timeout 10 $SUDO_CMD tc qdisc del dev "$iface" root >/dev/null 2>&1 \
+                || $SUDO_CMD tc qdisc del dev "$iface" root 2>/dev/null \
+                || true
+            timeout 10 $SUDO_CMD tc qdisc replace dev "$iface" root fq >/dev/null 2>&1 \
+                || $SUDO_CMD tc qdisc replace dev "$iface" root fq 2>/dev/null \
+                || true
         fi
     fi
 
     if [ -f "$cake_service" ]; then
-        $SUDO_CMD systemctl disable --now remnanode-gaming-qos.service >/dev/null 2>&1 || true
+        $SUDO_CMD systemctl disable remnanode-gaming-qos.service >/dev/null 2>&1 || true
+        $SUDO_CMD systemctl stop remnanode-gaming-qos.service >/dev/null 2>&1 || true
         $SUDO_CMD rm -f "$cake_service"
     fi
 
@@ -760,7 +766,8 @@ disable_gaming_node() {
     fi
 
     if [ -f "$thp_service" ]; then
-        $SUDO_CMD systemctl disable --now remnanode-disable-thp.service >/dev/null 2>&1 || true
+        $SUDO_CMD systemctl disable remnanode-disable-thp.service >/dev/null 2>&1 || true
+        $SUDO_CMD systemctl stop remnanode-disable-thp.service >/dev/null 2>&1 || true
         $SUDO_CMD rm -f "$thp_service"
     fi
     $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
