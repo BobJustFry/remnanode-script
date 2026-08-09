@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260809-gaming-menu7"
+INSTALLER_VERSION="20260809-gaming-fixhang"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -128,6 +128,11 @@ case "$lang" in
     MSG_GAMING_IFACE_FOUND="Detected network interface"
     MSG_GAMING_IFACE_NOT_FOUND="Could not detect network interface. Skipping CAKE queue setup."
     MSG_GAMING_CAKE_SKIP="CAKE setup skipped."
+    MSG_GAMING_STEP_SYSCTL="Applying gaming sysctl..."
+    MSG_GAMING_STEP_CAKE="Configuring CAKE queue..."
+    MSG_GAMING_STEP_MSS="Configuring MSS clamp..."
+    MSG_GAMING_STEP_THP="Disabling Transparent Huge Pages..."
+    MSG_GAMING_STEP_APT="Installing package (may take a minute)"
     MSG_CHECKLIST_TITLE="Installation checklist:"
     MSG_CHECKLIST_OK="[OK]"
     MSG_CHECKLIST_NO="[NO]"
@@ -237,6 +242,11 @@ case "$lang" in
     MSG_GAMING_IFACE_FOUND="Обнаружен сетевой интерфейс"
     MSG_GAMING_IFACE_NOT_FOUND="Не удалось определить сетевой интерфейс. Пропускаем настройку CAKE."
     MSG_GAMING_CAKE_SKIP="Настройка CAKE пропущена."
+    MSG_GAMING_STEP_SYSCTL="Применяем gaming sysctl..."
+    MSG_GAMING_STEP_CAKE="Настраиваем очередь CAKE..."
+    MSG_GAMING_STEP_MSS="Настраиваем MSS-clamp..."
+    MSG_GAMING_STEP_THP="Отключаем Transparent Huge Pages..."
+    MSG_GAMING_STEP_APT="Установка пакета (может занять минуту)"
     MSG_CHECKLIST_TITLE="Чеклист установки:"
     MSG_CHECKLIST_OK="[OK]"
     MSG_CHECKLIST_NO="[НЕТ]"
@@ -602,6 +612,7 @@ configure_gaming_node() {
 
     echo "$MSG_GAMING_CONFIG"
 
+    echo "$MSG_GAMING_STEP_SYSCTL"
     $SUDO_CMD modprobe tcp_bbr 2>/dev/null || true
     echo tcp_bbr | $SUDO_CMD tee /etc/modules-load.d/bbr.conf > /dev/null
 
@@ -622,13 +633,16 @@ net.ipv4.ip_forward = 1
 vm.swappiness = 10
 EOF
 
-    $SUDO_CMD sysctl --system >/dev/null 2>&1 || $SUDO_CMD sysctl -p "$sysctl_file" >/dev/null 2>&1 || true
+    # Prefer applying only our file — sysctl --system can hang on broken drop-ins.
+    $SUDO_CMD sysctl -p "$sysctl_file" >/dev/null 2>&1 || true
 
+    echo "$MSG_GAMING_STEP_CAKE"
     if iface=$(detect_primary_iface); then
         echo "$MSG_GAMING_IFACE_FOUND: $iface"
         if ! command -v tc >/dev/null 2>&1; then
-            $SUDO_CMD apt-get update >/dev/null 2>&1 || true
-            $SUDO_CMD apt-get install -y iproute2 >/dev/null 2>&1 || true
+            echo "$MSG_GAMING_STEP_APT: iproute2"
+            $SUDO_CMD apt-get update -y >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y iproute2 >/dev/null 2>&1 || true
         fi
 
         if command -v tc >/dev/null 2>&1; then
@@ -636,19 +650,22 @@ EOF
             $SUDO_CMD tee "$cake_service" > /dev/null <<EOF
 [Unit]
 Description=RemnaNode gaming CAKE queue
-After=network-online.target
-Wants=network-online.target
+After=network.target
+Wants=network.target
 
 [Service]
 Type=oneshot
 ExecStart=/sbin/tc qdisc replace dev $iface root cake
 RemainAfterExit=yes
+TimeoutStartSec=15
 
 [Install]
 WantedBy=multi-user.target
 EOF
-            $SUDO_CMD systemctl daemon-reload
-            $SUDO_CMD systemctl enable --now remnanode-gaming-qos.service >/dev/null 2>&1 || true
+            $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+            $SUDO_CMD systemctl enable remnanode-gaming-qos.service >/dev/null 2>&1 || true
+            # Avoid long waits on network-online; apply CAKE directly above.
+            timeout 15 $SUDO_CMD systemctl start remnanode-gaming-qos.service >/dev/null 2>&1 || true
         else
             echo "$MSG_GAMING_CAKE_SKIP"
         fi
@@ -657,6 +674,7 @@ EOF
         echo "$MSG_GAMING_CAKE_SKIP"
     fi
 
+    echo "$MSG_GAMING_STEP_MSS"
     if command -v iptables >/dev/null 2>&1; then
         if ! $SUDO_CMD iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 >/dev/null 2>&1; then
             $SUDO_CMD iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || true
@@ -665,13 +683,19 @@ EOF
             $SUDO_CMD iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
         fi
 
-        DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y iptables-persistent >/dev/null 2>&1 || true
+        if ! dpkg -s iptables-persistent >/dev/null 2>&1; then
+            echo "$MSG_GAMING_STEP_APT: iptables-persistent"
+            echo 'iptables-persistent iptables-persistent/autosave_v4 boolean true' | $SUDO_CMD debconf-set-selections
+            echo 'iptables-persistent iptables-persistent/autosave_v6 boolean true' | $SUDO_CMD debconf-set-selections
+            DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y iptables-persistent >/dev/null 2>&1 || true
+        fi
         if command -v netfilter-persistent >/dev/null 2>&1; then
             $SUDO_CMD netfilter-persistent save >/dev/null 2>&1 || true
         fi
     fi
 
-    if [ -w /sys/kernel/mm/transparent_hugepage/enabled ] || [ -e /sys/kernel/mm/transparent_hugepage/enabled ]; then
+    echo "$MSG_GAMING_STEP_THP"
+    if [ -e /sys/kernel/mm/transparent_hugepage/enabled ]; then
         echo never | $SUDO_CMD tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null 2>&1 || true
     fi
 
@@ -684,12 +708,14 @@ After=local-fs.target
 Type=oneshot
 ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
 RemainAfterExit=yes
+TimeoutStartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    $SUDO_CMD systemctl daemon-reload
-    $SUDO_CMD systemctl enable --now remnanode-disable-thp.service >/dev/null 2>&1 || true
+    $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+    $SUDO_CMD systemctl enable remnanode-disable-thp.service >/dev/null 2>&1 || true
+    timeout 10 $SUDO_CMD systemctl start remnanode-disable-thp.service >/dev/null 2>&1 || true
 
     echo "$MSG_GAMING_DONE"
 }
