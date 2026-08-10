@@ -8,7 +8,7 @@ export LANG=en_US.UTF-8
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260809-repair8"
+INSTALLER_VERSION="20260810-ipv6-mode"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -36,6 +36,7 @@ reconfigure_only=false
 gaming_node=false
 swap_configured=false
 mtu_configured=false
+mtu_default_restored=false
 ipv6_disable=true
 
 case "$lang" in
@@ -67,11 +68,15 @@ case "$lang" in
     MSG_CADDY_REMOVED="Caddy removed."
     MSG_CADDY_UNCHANGED="Caddy left unchanged."
     MSG_IPV6="Disabling IPv6..."
-    MSG_IPV6_ENABLE="Enabling IPv6..."
-    MSG_IPV6_CONFIRM="Disable IPv6? (y = disable / n = enable)"
-    MSG_IPV6_ONLY_START="Running in IPv6 enable-only mode."
-    MSG_IPV6_ENABLE_DONE="IPv6 enabled successfully."
-    MSG_IPV6_DISABLE_DONE="IPv6 disabled successfully."
+    MSG_IPV6_ENABLE="Restoring default IPv6 (enable)..."
+    MSG_IPV6_CONFIRM="Disable IPv6? (y = disable / n = restore default/enable)"
+    MSG_IPV6_ONLY_START="Running in IPv6 configuration mode."
+    MSG_IPV6_ENABLE_DONE="IPv6 restored to default (enabled)."
+    MSG_IPV6_DISABLE_DONE="IPv6 fully disabled."
+    MSG_IPV6_MENU="IPv6 configuration:"
+    MSG_IPV6_MENU_1="1) Fully disable IPv6"
+    MSG_IPV6_MENU_2="2) Restore default (enable IPv6)"
+    MSG_IPV6_MENU_INVALID="Invalid choice. Exiting."
     MSG_BBR="Configuring BBR for network optimization..."
     MSG_PORTS="Checking required ports..."
     MSG_PORT_ALREADY_OPEN="Port already open"
@@ -87,7 +92,7 @@ case "$lang" in
     MSG_MODE_3="3) Clean reinstall (remove old data)"
     MSG_MODE_4="4) Update parameters only"
     MSG_MODE_5="5) Create or update swap (default 2G)"
-    MSG_MODE_6="6) Fully enable IPv6"
+    MSG_MODE_6="6) IPv6: fully disable or restore default"
     MSG_MODE_7="7) Enable or disable gaming node tuning"
     MSG_MODE_8="8) Repair host parameters (iface/MTU/IPv6/gaming)"
     MSG_MODE_INVALID="Invalid mode selected. Full install will be used."
@@ -117,10 +122,13 @@ case "$lang" in
     MSG_SKIP_UPDATE="Skipping system update."
     MSG_REBOOT="If the system was updated, a reboot may be required (check with sudo reboot if needed)."
     MSG_MTU_CONFIRM="Set MTU to 1450 for hosts using DDoS protection? (y/n)"
-    MSG_SKIP_MTU="Skipping MTU configuration."
+    MSG_SKIP_MTU="Restoring default MTU 1500..."
     MSG_MTU_CONFIG="Setting MTU 1450..."
     MSG_MTU_DONE="MTU 1450 applied on interface"
     MSG_MTU_FAIL="Failed to set MTU 1450."
+    MSG_MTU_DEFAULT_CONFIG="Setting default MTU 1500..."
+    MSG_MTU_DEFAULT_DONE="Default MTU 1500 applied on interface"
+    MSG_MTU_DEFAULT_FAIL="Failed to set default MTU 1500."
     MSG_MTU_IFACE_NOT_FOUND="Could not detect network interface. Skipping MTU configuration."
     MSG_SWAP_CONFIRM="Install or reconfigure swap? (default 2G) (y/n)"
     MSG_SWAP_SIZE="Enter swap size (default 2G, examples: 2G, 2048M):"
@@ -148,6 +156,7 @@ case "$lang" in
     MSG_CHECKLIST_SKIP="[SKIP]"
     MSG_CHECK_SWAP="Swap"
     MSG_CHECK_MTU="MTU 1450"
+    MSG_CHECK_MTU_DEFAULT="MTU 1500 (default)"
     MSG_CHECK_UPDATE="System update"
     MSG_CHECK_DOCKER="Docker"
     MSG_CHECK_REMNANODE="RemnaNode container"
@@ -190,27 +199,16 @@ case "$lang" in
     MSG_CADDY_REMOVED="Caddy удалён."
     MSG_CADDY_UNCHANGED="Caddy оставлен без изменений."
     MSG_IPV6="Отключение IPv6..."
-    MSG_IPV6_ENABLE="Включение IPv6..."
-    MSG_IPV6_CONFIRM="Отключить IPv6? (y = отключить / n = включить)"
-    MSG_IPV6_ONLY_START="Запуск в режиме только включения IPv6."
-    MSG_IPV6_ENABLE_DONE="IPv6 успешно включен."
-    MSG_IPV6_DISABLE_DONE="IPv6 успешно отключен."
-    MSG_BBR="Настройка BBR для оптимизации сети..."
-    MSG_PORTS="Проверка необходимых портов..."
-    MSG_PORT_ALREADY_OPEN="Порт уже открыт"
-    MSG_PORT_OPENED="Порт открыт"
-    MSG_FIREWALL_NOT_FOUND="Поддерживаемый фаервол не найден. Пропускаем настройку портов."
-    MSG_FIREWALL_INACTIVE="Фаервол не активен. Пропускаем настройку портов."
-    MSG_PORTS_DONE="Проверка портов завершена."
-    MSG_INSTALLER_VERSION="Версия установщика:"
-    MSG_MODE_SELECT="Выберите режим:"
-    MSG_MODE_0="0) Выход"
-    MSG_MODE_1="1) Полная установка"
-    MSG_MODE_2="2) Только открыть порты (без переустановки)"
-    MSG_MODE_3="3) Чистая переустановка (удалить старые данные)"
-    MSG_MODE_4="4) Только изменение параметров"
-    MSG_MODE_5="5) Создание/обновление swap (по умолчанию 2G)"
-    MSG_MODE_6="6) Полное включение IPv6"
+    MSG_IPV6_ENABLE="Восстановление IPv6 по умолчанию (включение)..."
+    MSG_IPV6_CONFIRM="Отключить IPv6? (y = отключить / n = вернуть дефолт/включить)"
+    MSG_IPV6_ONLY_START="Запуск в режиме настройки IPv6."
+    MSG_IPV6_ENABLE_DONE="IPv6 возвращён к дефолту (включён)."
+    MSG_IPV6_DISABLE_DONE="IPv6 полностью отключён."
+    MSG_IPV6_MENU="Настройка IPv6:"
+    MSG_IPV6_MENU_1="1) Полностью отключить IPv6"
+    MSG_IPV6_MENU_2="2) Вернуть дефолт (включить IPv6)"
+    MSG_IPV6_MENU_INVALID="Неверный выбор. Выход."
+    MSG_MODE_6="6) IPv6: полное отключение или возврат к дефолту"
     MSG_MODE_7="7) Включить или отключить тюнинг игровой ноды"
     MSG_MODE_8="8) Починить параметры хоста (интерфейс/MTU/IPv6/gaming)"
     MSG_MODE_INVALID="Выбран неверный режим. Будет использована полная установка."
@@ -240,10 +238,13 @@ case "$lang" in
     MSG_SKIP_UPDATE="Пропускаем обновление системы."
     MSG_REBOOT="Если система была обновлена, возможно, потребуется перезагрузка (проверьте с sudo reboot если нужно)."
     MSG_MTU_CONFIRM="Установить MTU в 1450 для хостов, использующих защиту от DDoS-атак? (y/n)"
-    MSG_SKIP_MTU="Пропускаем настройку MTU."
+    MSG_SKIP_MTU="Восстанавливаем MTU по умолчанию 1500..."
     MSG_MTU_CONFIG="Устанавливаем MTU 1450..."
     MSG_MTU_DONE="MTU 1450 применён на интерфейсе"
     MSG_MTU_FAIL="Не удалось установить MTU 1450."
+    MSG_MTU_DEFAULT_CONFIG="Устанавливаем MTU по умолчанию 1500..."
+    MSG_MTU_DEFAULT_DONE="MTU по умолчанию 1500 применён на интерфейсе"
+    MSG_MTU_DEFAULT_FAIL="Не удалось установить MTU по умолчанию 1500."
     MSG_MTU_IFACE_NOT_FOUND="Не удалось определить сетевой интерфейс. Пропускаем настройку MTU."
     MSG_SWAP_CONFIRM="Установить или перенастроить swap? (по умолчанию 2G) (y/n)"
     MSG_SWAP_SIZE="Введите размер swap (по умолчанию 2G, примеры: 2G, 2048M):"
@@ -271,6 +272,7 @@ case "$lang" in
     MSG_CHECKLIST_SKIP="[ПРОПУСК]"
     MSG_CHECK_SWAP="Swap"
     MSG_CHECK_MTU="MTU 1450"
+    MSG_CHECK_MTU_DEFAULT="MTU 1500 (по умолчанию)"
     MSG_CHECK_UPDATE="Обновление системы"
     MSG_CHECK_DOCKER="Docker"
     MSG_CHECK_REMNANODE="Контейнер RemnaNode"
@@ -550,26 +552,79 @@ ensure_sysctl_setting() {
 }
 
 disable_ipv6() {
+    local ipv6_dropin="/etc/sysctl.d/99-remnanode-ipv6.conf"
+
     echo "$MSG_IPV6"
     $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true
     $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1 || true
     $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1 || true
+
+    $SUDO_CMD tee "$ipv6_dropin" > /dev/null <<EOF
+net.ipv6.conf.all.disable_ipv6=1
+net.ipv6.conf.default.disable_ipv6=1
+net.ipv6.conf.lo.disable_ipv6=1
+EOF
+
+    # Keep legacy keys in sync / dedupe in sysctl.conf
     ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "1"
     ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "1"
     ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "1"
+    # Remove old one-off filename if present
+    $SUDO_CMD rm -f /etc/sysctl.d/99-remnanode-disable-ipv6.conf
+    $SUDO_CMD sysctl --system >/dev/null 2>&1 || $SUDO_CMD sysctl -p >/dev/null 2>&1 || true
     echo "$MSG_IPV6_DISABLE_DONE"
 }
 
 enable_ipv6() {
+    local ipv6_dropin="/etc/sysctl.d/99-remnanode-ipv6.conf"
+    local key
+    local key_escaped
+
     echo "$MSG_IPV6_ENABLE"
     $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1 || true
     $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1 || true
     $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1 || true
-    ensure_sysctl_setting "net.ipv6.conf.all.disable_ipv6" "0"
-    ensure_sysctl_setting "net.ipv6.conf.default.disable_ipv6" "0"
-    ensure_sysctl_setting "net.ipv6.conf.lo.disable_ipv6" "0"
-    $SUDO_CMD sysctl -p >/dev/null 2>&1 || true
+
+    $SUDO_CMD rm -f "$ipv6_dropin" /etc/sysctl.d/99-remnanode-disable-ipv6.conf
+
+    # Remove remnanode IPv6 overrides from sysctl.conf so OS default can apply.
+    for key in \
+        net.ipv6.conf.all.disable_ipv6 \
+        net.ipv6.conf.default.disable_ipv6 \
+        net.ipv6.conf.lo.disable_ipv6
+    do
+        key_escaped=$(printf '%s\n' "$key" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        $SUDO_CMD sed -i "/^[[:space:]]*${key_escaped}[[:space:]]*=/d" /etc/sysctl.conf 2>/dev/null || true
+    done
+
+    $SUDO_CMD sysctl --system >/dev/null 2>&1 || $SUDO_CMD sysctl -p >/dev/null 2>&1 || true
+    # Explicitly leave enabled after cleanup
+    $SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1 || true
+    $SUDO_CMD sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1 || true
     echo "$MSG_IPV6_ENABLE_DONE"
+}
+
+run_ipv6_only_mode() {
+    local choice
+
+    echo "$MSG_IPV6_ONLY_START"
+    echo "$MSG_IPV6_MENU"
+    echo "$MSG_IPV6_MENU_1"
+    echo "$MSG_IPV6_MENU_2"
+    read -r choice
+    case "$choice" in
+    1)
+        disable_ipv6
+    ;;
+    2)
+        enable_ipv6
+    ;;
+    *)
+        echo "$MSG_IPV6_MENU_INVALID"
+        exit 1
+    ;;
+    esac
 }
 
 prompt_configure_ipv6() {
@@ -658,6 +713,42 @@ EOF
     $SUDO_CMD systemctl enable remnanode-mtu.service >/dev/null 2>&1 || true
 
     echo "$MSG_MTU_DONE: $iface"
+    return 0
+}
+
+configure_mtu_default_1500() {
+    local iface
+    local mtu_service="/etc/systemd/system/remnanode-mtu.service"
+    local current_mtu
+
+    echo "$MSG_MTU_DEFAULT_CONFIG"
+
+    if ! iface=$(detect_primary_iface); then
+        echo "$MSG_MTU_IFACE_NOT_FOUND"
+        return 1
+    fi
+
+    echo "$MSG_GAMING_IFACE_FOUND: $iface"
+
+    # Remove persistence that forced MTU 1450 from previous runs.
+    if [ -f "$mtu_service" ]; then
+        $SUDO_CMD systemctl disable remnanode-mtu.service >/dev/null 2>&1 || true
+        $SUDO_CMD rm -f "$mtu_service"
+        $SUDO_CMD systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+
+    if ! $SUDO_CMD ip link set dev "$iface" mtu 1500; then
+        echo "$MSG_MTU_DEFAULT_FAIL"
+        return 1
+    fi
+
+    current_mtu=$(cat "/sys/class/net/$iface/mtu" 2>/dev/null || true)
+    if [ "$current_mtu" != "1500" ]; then
+        echo "$MSG_MTU_DEFAULT_FAIL"
+        return 1
+    fi
+
+    echo "$MSG_MTU_DEFAULT_DONE: $iface"
     return 0
 }
 
@@ -957,6 +1048,12 @@ print_repair_checklist() {
         else
             checklist_status "$MSG_CHECK_MTU" no
         fi
+    elif $mtu_default_restored; then
+        if is_mtu_1500_active; then
+            checklist_status "$MSG_CHECK_MTU_DEFAULT" ok
+        else
+            checklist_status "$MSG_CHECK_MTU_DEFAULT" no
+        fi
     else
         checklist_status "$MSG_CHECK_MTU" skip
     fi
@@ -1039,13 +1136,20 @@ run_repair_host_mode() {
     [yY])
         if configure_mtu_1450; then
             mtu_configured=true
+            mtu_default_restored=false
         else
             mtu_configured=false
         fi
     ;;
     *)
         echo "$MSG_SKIP_MTU"
-        mtu_configured=false
+        if configure_mtu_default_1500; then
+            mtu_default_restored=true
+            mtu_configured=false
+        else
+            mtu_default_restored=false
+            mtu_configured=false
+        fi
     ;;
     esac
 
@@ -1200,6 +1304,21 @@ is_mtu_1450_active() {
     return 1
 }
 
+is_mtu_1500_active() {
+    local iface
+    local current_mtu
+
+    iface=$(detect_primary_iface 2>/dev/null || true)
+    if [ -z "$iface" ]; then
+        return 1
+    fi
+    current_mtu=$(cat "/sys/class/net/$iface/mtu" 2>/dev/null || true)
+    if [ "$current_mtu" = "1500" ]; then
+        return 0
+    fi
+    return 1
+}
+
 print_install_checklist() {
     echo ""
     echo "$MSG_CHECKLIST_TITLE"
@@ -1218,6 +1337,10 @@ print_install_checklist() {
         checklist_status "$MSG_CHECK_MTU" ok
     elif $mtu_configured; then
         checklist_status "$MSG_CHECK_MTU" no
+    elif $mtu_default_restored && is_mtu_1500_active; then
+        checklist_status "$MSG_CHECK_MTU_DEFAULT" ok
+    elif $mtu_default_restored; then
+        checklist_status "$MSG_CHECK_MTU_DEFAULT" no
     else
         checklist_status "$MSG_CHECK_MTU" skip
     fi
@@ -1350,8 +1473,7 @@ if [ "$install_mode" = "5" ]; then
 fi
 
 if [ "$install_mode" = "6" ]; then
-    echo "$MSG_IPV6_ONLY_START"
-    enable_ipv6
+    run_ipv6_only_mode
     exit 0
 fi
 
@@ -1382,6 +1504,7 @@ case "$response" in
 [yY])
     if configure_mtu_1450; then
         mtu_configured=true
+        mtu_default_restored=false
         skip_mtu=false
     else
         mtu_configured=false
@@ -1390,8 +1513,15 @@ case "$response" in
 ;;
 *)
     echo "$MSG_SKIP_MTU"
-    mtu_configured=false
-    skip_mtu=true
+    if configure_mtu_default_1500; then
+        mtu_default_restored=true
+        mtu_configured=false
+        skip_mtu=false
+    else
+        mtu_default_restored=false
+        mtu_configured=false
+        skip_mtu=true
+    fi
 ;;
 esac
 
