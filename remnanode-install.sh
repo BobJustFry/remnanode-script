@@ -3,12 +3,19 @@
 # Скрипт установщика для Ubuntu
 # Настройки интерфейса, установка Docker и дополнительного софта
 
-export LC_ALL=en_US.UTF-8
-export LANG=en_US.UTF-8
+# Pick an installed locale to avoid setlocale / perl warnings on minimal VPS images.
+for _locale_candidate in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 C; do
+    if LC_ALL="$_locale_candidate" LANG="$_locale_candidate" locale >/dev/null 2>&1; then
+        export LC_ALL="$_locale_candidate"
+        export LANG="$_locale_candidate"
+        break
+    fi
+done
+unset _locale_candidate
 
 set -e  # Остановить скрипт при ошибке
 
-INSTALLER_VERSION="20260810-ipv6-menu-fix"
+INSTALLER_VERSION="20260810-locale-menu"
 
 # Определение команды для sudo
 case "$EUID" in
@@ -887,7 +894,6 @@ EOF
         echo "$MSG_GAMING_CAKE_SKIP"
     fi
 
-    echo "$MSG_GAMING_STEP_MSS"
     ensure_mss_1360
 
     echo "$MSG_GAMING_STEP_THP"
